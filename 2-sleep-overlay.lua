@@ -20,6 +20,11 @@ local overlay_dir = ffiUtil.realpath("sleepoverlays") or "sleepoverlays"
 --   center : keep original overlay size and center it; larger images get cropped.
 --   stretch: stretch overlay to screen size without preserving aspect ratio.
 local overlay_resize_mode = "stretch"
+
+-- When the resulting image carries an alpha channel, flatten it onto a solid background
+-- so that ImageWidget can display it without turning transparent regions black.
+local flatten_alpha_background = true
+local flatten_alpha_color = Blitbuffer.COLOR_WHITE
 local overlay_candidates
 local random_seeded
 
@@ -171,6 +176,7 @@ local function composeOverlay(self)
 
     local overlay_type = overlay_bb.getType and overlay_bb:getType()
     local base_type = base_bb.getType and base_bb:getType()
+    local original_base_type = base_type
 
     if overlay_type == Blitbuffer.TYPE_BBRGB32 or overlay_type == Blitbuffer.TYPE_BB8A then
         if base_type ~= overlay_type then
@@ -211,6 +217,27 @@ local function composeOverlay(self)
     end)
     if not ok then
         logger.err("SleepOverlay: blit failed", err)
+    end
+
+    if flatten_alpha_background then
+        local final_type = base_bb.getType and base_bb:getType()
+        if final_type == Blitbuffer.TYPE_BBRGB32 or final_type == Blitbuffer.TYPE_BB8A then
+            local base_before_flatten = base_bb
+            local flattened = Blitbuffer.new(base_w, base_h, final_type)
+            flattened:fill(flatten_alpha_color)
+            flattened:alphablitFrom(base_before_flatten, 0, 0, 0, 0, base_w, base_h)
+            if base_before_flatten.free then base_before_flatten:free() end
+            base_bb = flattened
+            self.image = base_bb
+
+            if original_base_type and original_base_type ~= final_type then
+                local converted_back = Blitbuffer.new(base_w, base_h, original_base_type)
+                converted_back:blitFrom(base_bb, 0, 0, 0, 0, base_w, base_h)
+                if base_bb.free then base_bb:free() end
+                base_bb = converted_back
+                self.image = base_bb
+            end
+        end
     end
 
     if overlay_bb.free then overlay_bb:free() end
