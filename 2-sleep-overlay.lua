@@ -7,6 +7,12 @@ local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local RenderImage = require("ui/renderimage")
 local Screensaver = require("ui/screensaver")
+local UIManager = require("ui/uimanager")
+local Screen = require("device").screen
+local Widget = require("ui/widget/widget")
+local Geom = require("ui/geometry")
+local OverlapGroup = require("ui/widget/overlapgroup")
+local ScreenSaverWidget = require("ui/widget/screensaverwidget")
 local util = require("util")
 local math_floor = math.floor
 local math_abs = math.abs
@@ -21,12 +27,55 @@ local overlay_dir = ffiUtil.realpath("sleepoverlays") or "sleepoverlays"
 --   stretch: stretch overlay to screen size without preserving aspect ratio.
 local overlay_resize_mode = "stretch"
 
+-- Apply overlay only when the screensaver is showing an image (cover/random/custom).
+-- Set to false to allow overlay on widgets such as reading progress or book status.
+local overlay_only_on_images = false
+
 -- When the resulting image carries an alpha channel, flatten it onto a solid background
 -- so that ImageWidget can display it without turning transparent regions black.
 local flatten_alpha_background = true
 local flatten_alpha_color = Blitbuffer.COLOR_WHITE
 local overlay_candidates
 local random_seeded
+
+local OverlayPainter = Widget:extend{
+    name = "SleepOverlayPainter",
+    overlay_bb = nil,
+    overlay_disposable = true,
+    dest_x = 0,
+    dest_y = 0,
+    src_x = 0,
+    src_y = 0,
+    width = 0,
+    height = 0,
+    screen_w = 0,
+    screen_h = 0,
+}
+
+function OverlayPainter:getSize()
+    return Geom:new{ w = self.screen_w, h = self.screen_h }
+end
+
+function OverlayPainter:paintTo(bb, x, y)
+    if not self.overlay_bb then
+        return
+    end
+    local draw_x = x + self.dest_x
+    local draw_y = y + self.dest_y
+    local ok, err = pcall(function()
+        bb:alphablitFrom(self.overlay_bb, draw_x, draw_y, self.src_x, self.src_y, self.width, self.height)
+    end)
+    if not ok then
+        logger.err("SleepOverlay: overlay paint failed", err)
+    end
+end
+
+function OverlayPainter:free()
+    if self.overlay_disposable and self.overlay_bb and self.overlay_bb.free then
+        self.overlay_bb:free()
+    end
+    self.overlay_bb = nil
+end
 
 local function seedRandom()
     if not random_seeded then
@@ -74,32 +123,12 @@ local function pickOverlayPath()
     return overlay_candidates[idx]
 end
 
-local function ensureBaseImage(self)
-    if self.image then
-        return self.image
-    end
-    if not self.image_file then
-        return nil
-    end
-
-    local base_bb = RenderImage:renderImageFile(self.image_file, false, nil, nil)
-    if base_bb then
-        self.image = base_bb
-        self.image_file = nil
-    end
-    return base_bb
-end
-
 local function composeOverlay(self)
-    if not self:modeIsImage() then
-        return
-    end
     if self._sleep_overlay_applied then
         return
     end
 
-    local base_bb = ensureBaseImage(self)
-    if not base_bb then
+    if overlay_only_on_images and not self:modeIsImage() then
         return
     end
 
@@ -114,7 +143,7 @@ local function composeOverlay(self)
         return
     end
 
-    local base_w, base_h = base_bb:getWidth(), base_bb:getHeight()
+    local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
     local overlay_w, overlay_h = overlay_bb:getWidth(), overlay_bb:getHeight()
 
     local resize_mode = type(overlay_resize_mode) == "string" and overlay_resize_mode:lower() or "fit"
@@ -122,9 +151,9 @@ local function composeOverlay(self)
         if resize_mode ~= "stretch" then
             local scale
             if resize_mode == "fill" then
-                scale = math.max(base_w / overlay_w, base_h / overlay_h)
+                scale = math.max(screen_w / overlay_w, screen_h / overlay_h)
             else -- default to fit
-                scale = math.min(base_w / overlay_w, base_h / overlay_h)
+                scale = math.min(screen_w / overlay_w, screen_h / overlay_h)
             end
             if scale and scale > 0 and math.abs(scale - 1) > 0.0001 then
                 local target_w = math.max(1, math.floor(overlay_w * scale + 0.5))
@@ -137,8 +166,8 @@ local function composeOverlay(self)
                 end
             end
         else
-            if overlay_w ~= base_w or overlay_h ~= base_h then
-                local stretched = RenderImage:scaleBlitBuffer(overlay_bb, base_w, base_h)
+            if overlay_w ~= screen_w or overlay_h ~= screen_h then
+                local stretched = RenderImage:scaleBlitBuffer(overlay_bb, screen_w, screen_h)
                 if stretched then
                     if overlay_bb.free then overlay_bb:free() end
                     overlay_bb = stretched
@@ -148,8 +177,8 @@ local function composeOverlay(self)
         end
     end
 
-    local width = math.min(base_w, overlay_w)
-    local height = math.min(base_h, overlay_h)
+    local width = math.min(screen_w, overlay_w)
+    local height = math.min(screen_h, overlay_h)
     if width <= 0 or height <= 0 then
         if overlay_bb.free then overlay_bb:free() end
         return
@@ -158,91 +187,81 @@ local function composeOverlay(self)
     local dest_x, dest_y = 0, 0
     local src_x, src_y = 0, 0
 
-    if overlay_w < base_w then
-        dest_x = math_floor((base_w - overlay_w) / 2)
+    if overlay_w < screen_w then
+        dest_x = math_floor((screen_w - overlay_w) / 2)
         width = overlay_w
-    elseif overlay_w > base_w then
-        src_x = math_floor((overlay_w - base_w) / 2)
-        width = base_w
+    elseif overlay_w > screen_w then
+        src_x = math_floor((overlay_w - screen_w) / 2)
+        width = screen_w
     end
 
-    if overlay_h < base_h then
-        dest_y = math_floor((base_h - overlay_h) / 2)
+    if overlay_h < screen_h then
+        dest_y = math_floor((screen_h - overlay_h) / 2)
         height = overlay_h
-    elseif overlay_h > base_h then
-        src_y = math_floor((overlay_h - base_h) / 2)
-        height = base_h
+    elseif overlay_h > screen_h then
+        src_y = math_floor((overlay_h - screen_h) / 2)
+        height = screen_h
     end
 
     local overlay_type = overlay_bb.getType and overlay_bb:getType()
-    local base_type = base_bb.getType and base_bb:getType()
-    local original_base_type = base_type
-
-    if overlay_type == Blitbuffer.TYPE_BBRGB32 or overlay_type == Blitbuffer.TYPE_BB8A then
-        if base_type ~= overlay_type then
-            local old_base = base_bb
-            local converted_base = Blitbuffer.new(base_w, base_h, overlay_type)
-            converted_base:blitFrom(old_base, 0, 0, 0, 0, base_w, base_h)
-            base_bb = converted_base
-            self.image = base_bb
-            self.image_file = nil
-            base_type = overlay_type
-            if old_base ~= base_bb and old_base.free then
-                old_base:free()
-            end
-        end
-    elseif base_type and overlay_type and overlay_type ~= base_type then
-        local converted_overlay = Blitbuffer.new(overlay_w, overlay_h, base_type)
+    if overlay_type ~= Blitbuffer.TYPE_BBRGB32 and overlay_type ~= Blitbuffer.TYPE_BB8A then
+        local converted_overlay = Blitbuffer.new(overlay_w, overlay_h, Blitbuffer.TYPE_BBRGB32)
         converted_overlay:blitFrom(overlay_bb, 0, 0, 0, 0, overlay_w, overlay_h)
         if overlay_bb.free then overlay_bb:free() end
         overlay_bb = converted_overlay
-        overlay_type = base_type
+        overlay_type = Blitbuffer.TYPE_BBRGB32
+        overlay_w, overlay_h = overlay_bb:getWidth(), overlay_bb:getHeight()
     end
 
-    base_w, base_h = base_bb:getWidth(), base_bb:getHeight()
-    overlay_w, overlay_h = overlay_bb:getWidth(), overlay_bb:getHeight()
-    width = math.min(width, base_w)
-    height = math.min(height, base_h)
-    if width <= 0 or height <= 0 then
-        if overlay_bb.free then overlay_bb:free() end
+    local overlay_widget = OverlayPainter:new{
+        overlay_bb = overlay_bb,
+        overlay_disposable = true,
+        dest_x = dest_x,
+        dest_y = dest_y,
+        src_x = src_x,
+        src_y = src_y,
+        width = width,
+        height = height,
+        screen_w = screen_w,
+        screen_h = screen_h,
+    }
+
+    self._sleep_overlay_widget = overlay_widget
+    self._sleep_overlay_applied = true
+end
+
+local function attachOverlayToScreensaverWidget(sswidget, base_widget)
+    if not sswidget or sswidget._sleep_overlay_wrapped then
         return
     end
-
-    local ok, err = pcall(function()
-        if overlay_type == Blitbuffer.TYPE_BBRGB32 or overlay_type == Blitbuffer.TYPE_BB8A then
-            base_bb:alphablitFrom(overlay_bb, dest_x, dest_y, src_x, src_y, width, height)
-        else
-            base_bb:blitFrom(overlay_bb, dest_x, dest_y, src_x, src_y, width, height)
+    local widget_to_wrap = base_widget or sswidget.widget
+    if not widget_to_wrap then
+        return
+    end
+    if not Screensaver._sleep_overlay_widget then
+        local ok, err = pcall(composeOverlay, Screensaver)
+        if not ok then
+            logger.err("SleepOverlay: compose during widget attach failed", err)
+            return
         end
+    end
+    local overlay_widget = Screensaver._sleep_overlay_widget
+    if not overlay_widget then
+        return
+    end
+    sswidget.widget = OverlapGroup:new{
+        allow_mirroring = false,
+        widget_to_wrap,
+        overlay_widget,
+    }
+    sswidget._sleep_overlay_wrapped = true
+    if sswidget.update then
+        sswidget:update()
+    end
+    UIManager:setDirty(sswidget, function()
+        return "full", sswidget.main_frame and sswidget.main_frame.dimen or sswidget.region
     end)
-    if not ok then
-        logger.err("SleepOverlay: blit failed", err)
-    end
-
-    if flatten_alpha_background then
-        local final_type = base_bb.getType and base_bb:getType()
-        if final_type == Blitbuffer.TYPE_BBRGB32 or final_type == Blitbuffer.TYPE_BB8A then
-            local base_before_flatten = base_bb
-            local flattened = Blitbuffer.new(base_w, base_h, final_type)
-            flattened:fill(flatten_alpha_color)
-            flattened:alphablitFrom(base_before_flatten, 0, 0, 0, 0, base_w, base_h)
-            if base_before_flatten.free then base_before_flatten:free() end
-            base_bb = flattened
-            self.image = base_bb
-
-            if original_base_type and original_base_type ~= final_type then
-                local converted_back = Blitbuffer.new(base_w, base_h, original_base_type)
-                converted_back:blitFrom(base_bb, 0, 0, 0, 0, base_w, base_h)
-                if base_bb.free then base_bb:free() end
-                base_bb = converted_back
-                self.image = base_bb
-            end
-        end
-    end
-
-    if overlay_bb.free then overlay_bb:free() end
-    self._sleep_overlay_applied = true
-    logger.dbg("SleepOverlay: applied overlay", overlay_path)
+    Screensaver._sleep_overlay_widget = nil
 end
 
 local orig_show = Screensaver.show
@@ -251,11 +270,27 @@ function Screensaver:show(...)
     if not ok then
         logger.err("SleepOverlay: compose failed", err)
     end
-    return orig_show(self, ...)
+    local result = orig_show(self, ...)
+    attachOverlayToScreensaverWidget(self.screensaver_widget)
+    return result
 end
 
 local orig_cleanup = Screensaver.cleanup
 function Screensaver:cleanup()
+    if self._sleep_overlay_widget and self._sleep_overlay_widget.free then
+        self._sleep_overlay_widget:free()
+    end
     self._sleep_overlay_applied = nil
+    self._sleep_overlay_widget = nil
+    if self.screensaver_widget then
+        self.screensaver_widget._sleep_overlay_wrapped = nil
+    end
     return orig_cleanup(self)
+end
+
+local orig_sswidget_init = ScreenSaverWidget.init
+function ScreenSaverWidget:init(...)
+    local existing_widget = self.widget
+    orig_sswidget_init(self, ...)
+    attachOverlayToScreensaverWidget(self, existing_widget)
 end
