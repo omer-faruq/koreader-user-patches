@@ -1,23 +1,3 @@
---[[
-    Book Receipt - KOReader User Patch
-    
-    This user patch displays reading progress in a visual "receipt" format.
-    
-    Features:
-    - Can be triggered via the Dispatcher shortcut `book_receipt`
-    - Can be set as screensaver/sleep screen
-    - When added as wallpaper, it provides background color options (white/black/transparent)
-    
-    Original code created by Reddit user hundredpercentcocoa
-    https://www.reddit.com/user/hundredpercentcocoa/
-    
-    Modifications in this fork:
-    - Added wallpaper/screensaver integration with background color options
-    - Added book cover display in the receipt
-    
-    Fork: https://github.com/omer-faruq/koreader-user-patches
---]]
-
 local Blitbuffer = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
@@ -28,11 +8,14 @@ local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
+local DataStorage = require("datastorage")
+local DocumentRegistry = require("document/documentregistry")
 local ImageWidget = require("ui/widget/imagewidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local ProgressWidget = require("ui/widget/progresswidget")
 local ReaderUI = require("apps/reader/readerui")
 local RenderImage = require("ui/renderimage")
+local OverlapGroup = require("ui/widget/overlapgroup")
 local ScreenSaverWidget = require("ui/widget/screensaverwidget")
 local TextWidget = require("ui/widget/textwidget")
 local TextBoxWidget = require("ui/widget/textboxwidget")
@@ -50,15 +33,94 @@ local _ = require("gettext")
 local Screen = Device.screen 
 local T = ffiUtil.template
 local BOOK_RECEIPT_BG_SETTING = "book_receipt_screensaver_background"
+local BOOK_RECEIPT_BG_IMAGE_MODE_SETTING = "book_receipt_bg_image_mode"
 
-local function getReceiptBackgroundColor()
-    local choice = G_reader_settings:readSetting(BOOK_RECEIPT_BG_SETTING) or "white"
-    if choice == "transparent" then
+local function getBookReceiptBackgroundDir()
+    local base_dir = DataStorage:getDataDir()
+    if not base_dir or base_dir == "" then
         return nil
-    elseif choice == "black" then
-        return Blitbuffer.COLOR_BLACK
     end
-    return Blitbuffer.COLOR_WHITE
+    return string.format("%s/%s", base_dir, "book_receipt_background")
+end
+
+local function pickRandomReceiptBackgroundImage()
+    local dir = getBookReceiptBackgroundDir()
+    if not dir or lfs.attributes(dir, "mode") ~= "directory" then
+        return nil
+    end
+
+    local files = {}
+    util.findFiles(dir, function(file)
+        if not util.stringStartsWith(ffiUtil.basename(file), "._") and DocumentRegistry:isImageFile(file) then
+            table.insert(files, file)
+        end
+    end, false, 512)
+
+    if #files == 0 then
+        return nil
+    end
+    return files[math.random(#files)]
+end
+
+local function buildBackgroundImageWidget(image_path)
+    if not image_path then
+        return nil
+    end
+
+    local mode = G_reader_settings:readSetting(BOOK_RECEIPT_BG_IMAGE_MODE_SETTING) or "stretch"
+    if mode ~= "center" and mode ~= "stretch" and mode ~= "fit" then
+        mode = "stretch"
+    end
+
+    local screen_size = Screen:getSize()
+    local screen_w, screen_h = screen_size.w, screen_size.h
+    local image_opts = {
+        file = image_path,
+        alpha = true,
+        file_do_cache = false,
+    }
+
+    if mode == "stretch" then
+        image_opts.width = screen_w
+        image_opts.height = screen_h
+    elseif mode == "fit" then
+        image_opts.width = screen_w
+        image_opts.height = screen_h
+        image_opts.scale_factor = 0
+    end
+
+    local image_widget = ImageWidget:new(image_opts)
+
+    if mode == "center" then
+        return CenterContainer:new{
+            dimen = screen_size,
+            image_widget,
+        }
+    end
+
+    return image_widget
+end
+
+local function getReceiptBackground()
+    local choice = G_reader_settings:readSetting(BOOK_RECEIPT_BG_SETTING) or "white"
+
+    if choice == "transparent" then
+        return nil, nil
+    elseif choice == "black" then
+        return Blitbuffer.COLOR_BLACK, nil
+    elseif choice == "random_image" then
+        local image_path = pickRandomReceiptBackgroundImage()
+        if image_path then
+            local widget = buildBackgroundImageWidget(image_path)
+            if widget then
+                return nil, widget
+            end
+        end
+        logger.warn("Book receipt: no background image found, falling back to transparent")
+        return nil, nil
+    end
+
+    return Blitbuffer.COLOR_WHITE, nil
 end
 
 local function hasActiveDocument(ui)
@@ -494,9 +556,19 @@ Screensaver.show = function(self)
         local receipt_widget = buildReceipt(ui, state)
 
         if receipt_widget then
-            local background_color = getReceiptBackgroundColor()
+            local background_color, background_widget = getReceiptBackground()
+            local widget_to_show = receipt_widget
+
+            if background_widget then
+                widget_to_show = OverlapGroup:new{
+                    dimen = Screen:getSize(),
+                    background_widget,
+                    receipt_widget,
+                }
+            end
+
             self.screensaver_widget = ScreenSaverWidget:new{
-                widget = receipt_widget,
+                widget = widget_to_show,
                 background = background_color,
                 covers_fullscreen = true,
             }
@@ -556,6 +628,18 @@ _G.dofile = function(filepath)
                     genMenuItem(_("White fill"), BOOK_RECEIPT_BG_SETTING, "white"),
                     genMenuItem(_("Transparent"), BOOK_RECEIPT_BG_SETTING, "transparent"),
                     genMenuItem(_("Black fill"), BOOK_RECEIPT_BG_SETTING, "black"),
+                    genMenuItem(_("Random image"), BOOK_RECEIPT_BG_SETTING, "random_image"),
+                    {
+                        text = _("Random image placement"),
+                        enabled_func = function()
+                            return G_reader_settings:readSetting(BOOK_RECEIPT_BG_SETTING) == "random_image"
+                        end,
+                        sub_item_table = {
+                            genMenuItem(_("Fit to screen"), BOOK_RECEIPT_BG_IMAGE_MODE_SETTING, "fit"),
+                            genMenuItem(_("Stretch to screen"), BOOK_RECEIPT_BG_IMAGE_MODE_SETTING, "stretch"),
+                            genMenuItem(_("Center without scaling"), BOOK_RECEIPT_BG_IMAGE_MODE_SETTING, "center"),
+                        },
+                    },
                 },
             })
         end
