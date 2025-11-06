@@ -35,7 +35,7 @@ local use_stickers = false
 local sticker_mode = "random" -- options: "corners", "random"
 local sticker_max_fraction = 1 / 3
 local sticker_min_distance_fraction = 1 / 5
-local sticker_random_min = 1
+local sticker_random_min = 3
 local sticker_random_max = 6
 local overlay_dir = ffiUtil.realpath("sleepoverlays") or "sleepoverlays"
 local sticker_dir = ffiUtil.realpath("sleepoverlay_stickers") or "sleepoverlay_stickers"
@@ -172,6 +172,48 @@ local function pickOverlayPath()
     return overlay_candidates[idx]
 end
 
+local function computeStickerTargetSize(sticker_w, sticker_h, max_w, max_h)
+    local limit_w = math_max(1, math_floor(max_w + 0.5))
+    local limit_h = math_max(1, math_floor(max_h + 0.5))
+    local target_w = sticker_w
+    local target_h = sticker_h
+
+    if sticker_w > limit_w or sticker_h > limit_h then
+        local scale_w = limit_w / sticker_w
+        local scale_h = limit_h / sticker_h
+        if scale_w <= scale_h then
+            target_w = limit_w
+            target_h = math_max(1, math_floor(sticker_h * scale_w + 0.5))
+            if target_h > limit_h then
+                target_h = limit_h
+                target_w = math_max(1, math_floor(sticker_w * (limit_h / sticker_h) + 0.5))
+            end
+        else
+            target_h = limit_h
+            target_w = math_max(1, math_floor(sticker_w * scale_h + 0.5))
+            if target_w > limit_w then
+                target_w = limit_w
+                target_h = math_max(1, math_floor(sticker_h * (limit_w / sticker_w) + 0.5))
+            end
+        end
+    elseif sticker_w < limit_w and sticker_h < limit_h then
+        local scale_w = limit_w / sticker_w
+        local scale_h = limit_h / sticker_h
+        if scale_w <= scale_h then
+            target_w = limit_w
+            target_h = math_max(1, math_floor(sticker_h * scale_w + 0.5))
+        else
+            target_h = limit_h
+            target_w = math_max(1, math_floor(sticker_w * scale_h + 0.5))
+        end
+    end
+
+    target_w = math_max(1, math_min(limit_w, target_w))
+    target_h = math_max(1, math_min(limit_h, target_h))
+
+    return target_w, target_h
+end
+
 local function prepareStickerBuffer(path, max_w, max_h)
     local sticker_bb = RenderImage:renderImageFile(path, false, nil, nil)
     if not sticker_bb then
@@ -186,29 +228,18 @@ local function prepareStickerBuffer(path, max_w, max_h)
         return nil
     end
 
-    local limit_w = math_max(1, max_w)
-    local limit_h = math_max(1, max_h)
-    local scale = 1
-
-    if sticker_w > limit_w or sticker_h > limit_h then
-        scale = math_min(limit_w / sticker_w, limit_h / sticker_h)
-    elseif sticker_w < limit_w and sticker_h < limit_h then
-        scale = math_max(limit_w / sticker_w, limit_h / sticker_h)
-    end
-
-    if scale > 0 and math_abs(scale - 1) > 0.0001 then
-        local target_w = math_max(1, math_floor(sticker_w * scale + 0.5))
-        local target_h = math_max(1, math_floor(sticker_h * scale + 0.5))
+    local target_w, target_h = computeStickerTargetSize(sticker_w, sticker_h, max_w, max_h)
+    if target_w ~= sticker_w or target_h ~= sticker_h then
         local scaled = RenderImage:scaleBlitBuffer(sticker_bb, target_w, target_h)
         if scaled then
             if sticker_bb.free then sticker_bb:free() end
             sticker_bb = scaled
+            sticker_w, sticker_h = sticker_bb:getWidth(), sticker_bb:getHeight()
         end
     end
 
     local sticker_type = sticker_bb.getType and sticker_bb:getType()
     if sticker_type ~= Blitbuffer.TYPE_BBRGB32 and sticker_type ~= Blitbuffer.TYPE_BB8A then
-        sticker_w, sticker_h = sticker_bb:getWidth(), sticker_bb:getHeight()
         local converted = Blitbuffer.new(sticker_w, sticker_h, Blitbuffer.TYPE_BBRGB32)
         converted:blitFrom(sticker_bb, 0, 0, 0, 0, sticker_w, sticker_h)
         if sticker_bb.free then sticker_bb:free() end
