@@ -23,4 +23,4 @@ Lists specific books or directories whose covers should be replaced with random 
 ---
 
 ## 2-sleep-overlay.lua
-Blends a randomly chosen transparent PNG overlay onto the current sleep cover using files from the `sleepoverlays` folder. 
+Blends a randomly chosen transparent PNG overlay onto the current sleep cover using files from the `sleepoverlays` folder. You can find samples here: https://imgur.com/a/VdqtgvM
