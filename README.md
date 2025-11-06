@@ -23,4 +23,6 @@ Lists specific books or directories whose covers should be replaced with random 
 ---
 
 ## 2-sleep-overlay.lua
-Blends a randomly chosen transparent PNG overlay onto the current sleep cover using files from the `sleepoverlays` folder. You can find samples here: https://imgur.com/a/VdqtgvM
+Adds two sleep screen styles:
+- **Overlay mode** covers the full screen with a randomly chosen PNG from `sleepoverlays` (samples: https://imgur.com/a/VdqtgvM).
+- **Sticker mode** picks PNG stickers from `sleepoverlay_stickers` for playful layouts. Sticker mode supports `corners` (stickers in each corner) and `random` (1–6 stickers placed randomly) and can be tuned with simple parameters such as maximum sticker size, minimum spacing, and how many stickers to draw.
