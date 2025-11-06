@@ -213,6 +213,10 @@ local function composeOverlay(self)
         overlay_w, overlay_h = overlay_bb:getWidth(), overlay_bb:getHeight()
     end
 
+    if Screen.night_mode then
+        overlay_bb:invertRect(0, 0, overlay_w, overlay_h)
+    end
+
     local overlay_widget = OverlayPainter:new{
         overlay_bb = overlay_bb,
         overlay_disposable = true,
