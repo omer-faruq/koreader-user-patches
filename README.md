@@ -25,4 +25,15 @@ Lists specific books or directories whose covers should be replaced with random 
 ## 2-sleep-overlay.lua
 Adds two sleep screen styles:
 - **Overlay mode** covers the full screen with a randomly chosen PNG from `sleepoverlays` (samples: https://imgur.com/a/VdqtgvM).
-- **Sticker mode** picks PNG stickers from `sleepoverlay_stickers` for playful layouts. Sticker mode supports `corners` (stickers in each corner) and `random` (1–6 stickers placed randomly) and can be tuned with simple parameters such as maximum sticker size, minimum spacing, and how many stickers to draw.
+- **Sticker mode** picks PNG stickers from `sleepoverlay_stickers` for playful layouts. Sticker mode supports `corners`, `random`, and `frame`:
+  - `corners` drops stickers into the four corners.
+  - `random` scatters a configurable number of stickers anywhere on screen.
+  - `frame` places stickers inside a border strip, using `sticker_frame_depth` to define the inset from the screen edge.
+
+Sticker parameters:
+- `use_stickers` toggles sticker mode.
+- `sticker_mode` selects the layout (`corners`, `random`, or `frame`).
+- `sticker_max_fraction` limits sticker size relative to screen.
+- `sticker_min_distance_fraction` enforces spacing (random/frame).
+- `sticker_random_min` / `sticker_random_max` control sticker counts (random/frame).
+- `sticker_frame_depth` sets the border thickness used by frame mode.

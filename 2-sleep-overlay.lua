@@ -1,12 +1,13 @@
--- Sleep Overlay patch: choose between full-screen overlays and playful sticker layouts for the sleep screen.
+--- Sleep Overlay patch: choose between full-screen overlays and playful sticker layouts for the sleep screen.
 -- Overlay mode covers the entire display with a random PNG from the "sleepoverlays" folder.
--- Sticker mode uses PNG files from "sleepoverlay_stickers" either in the four corners or scattered randomly.
+-- Sticker mode uses PNG files from "sleepoverlay_stickers" in the corners, scattered randomly, or framing the screen border.
 -- Quick sticker tweaks:
 --   use_stickers: turn sticker mode on/off
---   sticker_mode: "corners" or "random"
+--   sticker_mode: "corners", "random", or "frame"
 --   sticker_max_fraction: largest sticker size relative to screen
---   sticker_min_distance_fraction: spacing between stickers
---   sticker_random_min / sticker_random_max: how many stickers to drop in random mode
+--   sticker_min_distance_fraction: spacing between stickers (random/frame)
+--   sticker_random_min / sticker_random_max: how many stickers to drop (random/frame)
+--   sticker_frame_depth: frame inset from the edge that defines the placement strip
 
 local Blitbuffer = require("ffi/blitbuffer")
 local ffiUtil = require("ffi/util")
@@ -31,12 +32,15 @@ local table_remove = table.remove
 
 local joinPath = ffiUtil.joinPath
 
+-- Sticker settings::
 local use_stickers = false
-local sticker_mode = "random" -- options: "corners", "random"
-local sticker_max_fraction = 1 / 3
-local sticker_min_distance_fraction = 1 / 5
-local sticker_random_min = 3
-local sticker_random_max = 6
+local sticker_mode = "frame" -- options: "corners", "random", "frame"
+local sticker_max_fraction = 1 / 3   -- for all modes: maximum sticker size relative to screen
+local sticker_min_distance_fraction = 1 / 5 -- for random and frame mode: minimum distance between stickers
+local sticker_random_min = 3     -- for random and frame mode: minimum number of stickers to place
+local sticker_random_max = 6     -- for random and frame mode: maximum number of stickers to place
+local sticker_frame_depth = 120  -- for frame mode: pixels from the edge of the screen
+
 local overlay_dir = ffiUtil.realpath("sleepoverlays") or "sleepoverlays"
 local sticker_dir = ffiUtil.realpath("sleepoverlay_stickers") or "sleepoverlay_stickers"
 
@@ -46,7 +50,6 @@ local sticker_dir = ffiUtil.realpath("sleepoverlay_stickers") or "sleepoverlay_s
 --   center : keep original overlay size and center it; larger images get cropped.
 --   stretch: stretch overlay to screen size without preserving aspect ratio.
 local overlay_resize_mode = "stretch"
-local sticker_candidates
 
 -- Apply overlay only when the screensaver is showing an image (cover/random/custom).
 -- Set to false to allow overlay on widgets such as reading progress or book status.
@@ -56,8 +59,10 @@ local overlay_only_on_images = false
 -- so that ImageWidget can display it without turning transparent regions black.
 local flatten_alpha_background = true
 local flatten_alpha_color = Blitbuffer.COLOR_WHITE
+
 local overlay_candidates
 local random_seeded
+local sticker_candidates
 
 local function refreshStickerList()
     sticker_candidates = {}
@@ -431,6 +436,183 @@ local function composeStencilRandom(screen_w, screen_h, max_sticker_w, max_stick
     return OverlapGroup:new(children)
 end
 
+local function composeStencilFrame(screen_w, screen_h, max_sticker_w, max_sticker_h)
+    if not sticker_candidates or #sticker_candidates == 0 then
+        return nil
+    end
+
+    local frame_depth = math_floor(math_max(0, sticker_frame_depth) + 0.5)
+    if frame_depth <= 0 then
+        return nil
+    end
+
+    local available = {}
+    for i = 1, #sticker_candidates do
+        available[i] = sticker_candidates[i]
+    end
+
+    local min_distance = math_max(0, sticker_min_distance_fraction) * math_min(screen_w, screen_h)
+
+    local count_min = math_max(0, sticker_random_min)
+    local count_max = math_max(count_min, sticker_random_max)
+    count_max = math_min(count_max, #available)
+    if count_max == 0 then
+        return nil
+    end
+
+    if count_min > count_max then
+        count_min = count_max
+    end
+
+    local target_count = count_min
+    if count_max > count_min then
+        target_count = math.random(count_min, count_max)
+    end
+
+    local placed_any = false
+    local painters = {}
+    local used_positions = {}
+
+    local function insideForbiddenZone(dest_x, dest_y, sticker_w, sticker_h)
+        if frame_depth <= 0 then
+            return false
+        end
+        local inner_left = frame_depth
+        local inner_top = frame_depth
+        local inner_right = screen_w - frame_depth
+        local inner_bottom = screen_h - frame_depth
+        if inner_right <= inner_left or inner_bottom <= inner_top then
+            return false
+        end
+        if dest_x < inner_left or dest_y < inner_top then
+            return false
+        end
+        if dest_x + sticker_w > inner_right or dest_y + sticker_h > inner_bottom then
+            return false
+        end
+        return true
+    end
+
+    for _ = 1, target_count do
+        if #available == 0 then
+            break
+        end
+
+        local pick_idx = math.random(#available)
+        local sticker_path = available[pick_idx]
+        table_remove(available, pick_idx)
+
+        local sticker_bb, sticker_w, sticker_h = prepareStickerBuffer(sticker_path, max_sticker_w, max_sticker_h)
+        if sticker_bb then
+            local attempts = 40
+            local placed = false
+            local max_x = math_max(0, screen_w - sticker_w)
+            local max_y = math_max(0, screen_h - sticker_h)
+            local candidate_generators = {}
+
+            local left_max = math_min(frame_depth - 1, max_x)
+            if left_max >= 0 then
+                table.insert(candidate_generators, function()
+                    local dest_x = left_max > 0 and math.random(0, left_max) or 0
+                    local dest_y = max_y > 0 and math.random(0, max_y) or 0
+                    return dest_x, dest_y
+                end)
+            end
+
+            local right_min = math_max(0, screen_w - frame_depth - sticker_w)
+            if right_min <= max_x then
+                table.insert(candidate_generators, function()
+                    local dest_x = right_min < max_x and math.random(right_min, max_x) or right_min
+                    local dest_y = max_y > 0 and math.random(0, max_y) or 0
+                    return dest_x, dest_y
+                end)
+            end
+
+            local top_max = math_min(frame_depth - 1, max_y)
+            if top_max >= 0 then
+                table.insert(candidate_generators, function()
+                    local dest_x = max_x > 0 and math.random(0, max_x) or 0
+                    local dest_y = top_max > 0 and math.random(0, top_max) or 0
+                    return dest_x, dest_y
+                end)
+            end
+
+            local bottom_min = math_max(0, screen_h - frame_depth - sticker_h)
+            if bottom_min <= max_y then
+                table.insert(candidate_generators, function()
+                    local dest_x = max_x > 0 and math.random(0, max_x) or 0
+                    local dest_y = bottom_min < max_y and math.random(bottom_min, max_y) or bottom_min
+                    return dest_x, dest_y
+                end)
+            end
+
+            while attempts > 0 do
+                attempts = attempts - 1
+                local dest_x
+                local dest_y
+                if #candidate_generators > 0 then
+                    local generator = candidate_generators[math.random(#candidate_generators)]
+                    dest_x, dest_y = generator()
+                else
+                    dest_x = max_x > 0 and math.random(0, max_x) or 0
+                    dest_y = max_y > 0 and math.random(0, max_y) or 0
+                end
+
+                if insideForbiddenZone(dest_x, dest_y, sticker_w, sticker_h) then
+                    goto continue_attempt
+                end
+
+                local valid = true
+                for _, pos in ipairs(used_positions) do
+                    local dx = dest_x - pos.x
+                    local dy = dest_y - pos.y
+                    if math_sqrt(dx * dx + dy * dy) < min_distance then
+                        valid = false
+                        break
+                    end
+                end
+
+                if valid then
+                    local painter = OverlayPainter:new{
+                        overlay_bb = sticker_bb,
+                        overlay_disposable = true,
+                        dest_x = dest_x,
+                        dest_y = dest_y,
+                        src_x = 0,
+                        src_y = 0,
+                        width = sticker_w,
+                        height = sticker_h,
+                        screen_w = screen_w,
+                        screen_h = screen_h,
+                    }
+                    table.insert(painters, painter)
+                    table.insert(used_positions, { x = dest_x, y = dest_y })
+                    placed = true
+                    placed_any = true
+                    break
+                end
+
+                ::continue_attempt::
+            end
+
+            if not placed then
+                if sticker_bb.free then sticker_bb:free() end
+            end
+        end
+    end
+
+    if not placed_any then
+        return nil
+    end
+
+    local children = { allow_mirroring = false }
+    for _, painter in ipairs(painters) do
+        table.insert(children, painter)
+    end
+
+    return OverlapGroup:new(children)
+end
+
 local function composeOverlay(self)
     if self._sleep_overlay_applied then
         return
@@ -454,6 +636,8 @@ local function composeOverlay(self)
 
             if sticker_mode == "random" then
                 overlay_widget = composeStencilRandom(screen_w, screen_h, max_sticker_w, max_sticker_h)
+            elseif sticker_mode == "frame" then
+                overlay_widget = composeStencilFrame(screen_w, screen_h, max_sticker_w, max_sticker_h)
             else
                 overlay_widget = composeStencilFromCorners(screen_w, screen_h, max_sticker_w, max_sticker_h)
             end
