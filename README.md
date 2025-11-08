@@ -22,6 +22,11 @@ Lists specific books or directories whose covers should be replaced with random 
 
 ---
 
+## 2-recursive-file-counts.lua
+Shows the folder's direct file count and, when different, the total number of files contained in all nested subdirectories in KOReader's file list.
+
+---
+
 ## 2-sleep-overlay.lua
 Adds two sleep screen styles:
 - **Overlay mode** covers the full screen with a randomly chosen PNG from `sleepoverlays` (samples: https://imgur.com/a/VdqtgvM).
