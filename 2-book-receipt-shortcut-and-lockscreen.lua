@@ -518,12 +518,19 @@ Dispatcher:registerAction("quicklookbox_action", {
 							reader=true,})
 
 function ReaderUI:onQuickLook()
-    local widget = quicklookbox:new{
-        ui = self,
-        document = self.document,
-        state = self.view and self.view.state,
-    }
-    UIManager:show(widget)
+    UIManager:nextTick(function()
+        local widget = quicklookbox:new{
+            ui = self,
+            document = self.document,
+            state = self.view and self.view.state,
+        }
+        UIManager:show(widget)
+        -- Optional: close underlying gesture menu safely after showing
+        -- UIManager:scheduleIn(0.1, function()
+        -- local menus = UIManager:getAllPopups()
+        -- if #menus > 1 then UIManager:close(menus[#menus - 1]) end
+        -- end)
+    end)
 end
 
 -- Screensaver integration
