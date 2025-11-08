@@ -42,3 +42,8 @@ Sticker parameters:
 - `sticker_min_distance_fraction` enforces spacing (random/frame).
 - `sticker_random_min` / `sticker_random_max` control sticker counts (random/frame).
 - `sticker_frame_depth` sets the border thickness used by frame mode.
+
+---
+
+## Credits
+These patches were created with assistance from Windurf (AI).
