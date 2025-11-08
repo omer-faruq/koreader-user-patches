@@ -330,7 +330,7 @@ local function buildReceipt(ui, state)
         local progressbarwidth = widget_width
         local progress_bar = ProgressWidget:new{
             width = progressbarwidth,
-            height = Screen:scaleBySize(2),
+            height = Screen:scaleBySize(5),
             percentage = percentage_value,
             margin_v = 0,
             margin_h = 0,
