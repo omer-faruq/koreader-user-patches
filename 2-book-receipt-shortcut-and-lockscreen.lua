@@ -469,6 +469,7 @@ end
 local quicklookbox = InputContainer:extend{  
     modal = true,  
     name = "quick_look_box",  
+    covers_fullscreen = true,
 }  
 
 function quicklookbox:init()
@@ -546,12 +547,16 @@ Dispatcher:registerAction("quicklookbox_action", {
 							reader=true,})
 
 function ReaderUI:onQuickLook()
-    local widget = quicklookbox:new{
-        ui = self,
-        document = self.document,
-        state = self.view and self.view.state,
-    }
-    UIManager:show(widget)
+    local ui = self
+    UIManager:nextTick(function()
+        if not ui then return end
+        local widget = quicklookbox:new{
+            ui = ui,
+            document = ui.document,
+            state = ui.view and ui.view.state,
+        }
+        UIManager:show(widget)
+    end)
 end
 
 -- Screensaver integration
