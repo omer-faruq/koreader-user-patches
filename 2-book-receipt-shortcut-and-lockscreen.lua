@@ -209,25 +209,49 @@ local function buildReceipt(ui, state)
     end
 
     local doc_settings = ui.doc_settings and ui.doc_settings.data or {}
-    local page_no = (state and state.page) or 1
-    local page_total = doc_settings.doc_pages or 1
-    if page_total <= 0 then page_total = 1 end
-    if page_no < 1 then page_no = 1 end
-    if page_no > page_total then page_no = page_total end
+    local doc_page_no = (state and state.page) or 1
+    local doc_page_total = doc_settings.doc_pages or 1
+    if doc_page_total <= 0 then doc_page_total = 1 end
+    if doc_page_no < 1 then doc_page_no = 1 end
+    if doc_page_no > doc_page_total then doc_page_no = doc_page_total end
 
-    local page_left = math.max(page_total - page_no, 0)
+    local page_no_numeric = doc_page_no
+    local page_total_numeric = doc_page_total
+    local page_no_display = tostring(page_no_numeric)
+    local page_total_display = tostring(page_total_numeric)
+
+    if ui.pagemap and ui.pagemap:wantsPageLabels() then
+        local label, idx, count = ui.pagemap:getCurrentPageLabel(true)
+        local last_label = ui.pagemap:getLastPageLabel(true)
+        if idx and count then
+            page_no_numeric = idx
+            page_total_numeric = count
+        end
+        if label and label ~= "" then
+            page_no_display = label
+        else
+            page_no_display = tostring(page_no_numeric)
+        end
+        if last_label and last_label ~= "" then
+            page_total_display = last_label
+        else
+            page_total_display = tostring(page_total_numeric)
+        end
+    end
+
+    local page_left = math.max(page_total_numeric - page_no_numeric, 0)
     local toc = ui.toc
     local chapter_title = ""
-    local chapter_total = page_total
+    local chapter_total = page_total_numeric
     local chapter_left = 0
     local chapter_done = 0
     if toc then
-        chapter_title = toc:getTocTitleByPage(page_no) or ""
-        chapter_total = toc:getChapterPageCount(page_no) or chapter_total
-        chapter_left = toc:getChapterPagesLeft(page_no) or 0
-        chapter_done = toc:getChapterPagesDone(page_no) or 0
+        chapter_title = toc:getTocTitleByPage(doc_page_no) or ""
+        chapter_total = toc:getChapterPageCount(doc_page_no) or chapter_total
+        chapter_left = toc:getChapterPagesLeft(doc_page_no) or 0
+        chapter_done = toc:getChapterPagesDone(doc_page_no) or 0
     end
-    chapter_total = chapter_total > 0 and chapter_total or page_total
+    chapter_total = chapter_total > 0 and chapter_total or page_total_numeric
     chapter_done = math.max(chapter_done + 1, 1)
 
     local statistics = ui.statistics
@@ -280,9 +304,13 @@ local function buildReceipt(ui, state)
     local db_padding = 20
     local db_padding_internal = 8
 
-    local function databox(typename, itemname, pages_done, pages_total, time_left_text)
-        local denom = pages_total > 0 and pages_total or 1
-        local percentage_value = math.max(math.min(pages_done / denom, 1), 0)
+    local function databox(typename, itemname, pages_done, pages_total, time_left_text, pages_done_display, pages_total_display)
+        local pages_done_num = tonumber(pages_done) or 0
+        local pages_total_num = tonumber(pages_total) or 0
+        local denom = pages_total_num > 0 and pages_total_num or 1
+        local percentage_value = math.max(math.min(pages_done_num / denom, 1), 0)
+        local display_done = pages_done_display or pages_done
+        local display_total = pages_total_display or pages_total
 
         local boxtitle = TextWidget:new{
             text = typename,
@@ -313,7 +341,7 @@ local function buildReceipt(ui, state)
         }
 
         local page_progress = TextWidget:new{
-            text = string.format("page %i of %i", pages_done, pages_total),
+            text = string.format("page %s of %s", display_done, display_total),
             face = Font:getFace("cfont", db_font_size_small),
             bold = false,
             fgcolor = db_font_color_lighter,
@@ -384,7 +412,7 @@ local function buildReceipt(ui, state)
     }
 
     local bookboxtitle = string.format("%s - %s", book_title, book_author)
-    local bookbox = databox("Book", bookboxtitle, page_no, page_total, book_time_left)
+    local bookbox = databox("Book", bookboxtitle, page_no_numeric, page_total_numeric, book_time_left, page_no_display, page_total_display)
     local chapterbox = databox("Chapter", chapter_title, chapter_done, chapter_total, chapter_time_left)
 
     local cover_widget
