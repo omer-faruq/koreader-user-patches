@@ -1,5 +1,11 @@
 # KOReader User Patches
 
+## How to use these patches
+- Create the `patches` folder in the `koreader` directory if it doesn't exist.
+- Place the related `.lua` file in the `patches` folder in the `koreader` directory.
+- Follow other steps(like creating another folder, editing the lua file, etc.) if mentioned.
+- Restart KOReader.
+
 ## 2-book-receipt-shortcut-and-lockscreen.lua
 Displays reading progress in a visual "receipt" format showing book/chapter progress, estimated time remaining, and book cover.
 
