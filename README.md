@@ -37,8 +37,8 @@ Shows the folder's direct file count and, when different, the total number of fi
 
 ## 2-sleep-overlay.lua
 Adds two sleep screen styles:
-- **Overlay mode** covers the full screen with a randomly chosen PNG from `sleepoverlays` (samples: https://imgur.com/a/VdqtgvM).
-- **Sticker mode** picks PNG stickers from `sleepoverlay_stickers` for playful layouts. Sticker mode supports `corners`, `random`, and `frame`:
+- **Overlay mode** covers the full screen with a randomly chosen PNG from `sleepoverlays` folder (samples: https://imgur.com/a/VdqtgvM).
+- **Sticker mode** picks PNG stickers from `sleepoverlay_stickers` folder for playful layouts. Sticker mode supports `corners`, `random`, and `frame`:
   - `corners` drops stickers into the four corners.
   - `random` scatters a configurable number of stickers anywhere on screen.
   - `frame` places stickers inside a border strip, using `sticker_frame_depth` to define the inset from the screen edge.
