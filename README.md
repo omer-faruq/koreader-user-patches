@@ -6,8 +6,10 @@ Displays reading progress in a visual "receipt" format showing book/chapter prog
 **Features:**
 - Can be triggered via shortcut ( "Book receipt" under "Reader")
 - Can be set as screensaver/sleep screen
-- When added as wallpaper, it provides background color options (white/black/transparent/random image)
+- When added as wallpaper, it provides background color options (white/black/transparent/random image/book cover)
 - Selecting the `random image` option searches for a `book_receipt_background` folder under the `koreader` folder and randomly picks one of its images as the background; if the folder is missing, the background defaults to transparent (some examples: https://imgur.com/a/zzfbl0J )
+- Selecting the `book cover` option uses the current book's cover art as the background
+- Displays the configured sleep screen message when available
 
 **Original code:** Created by Reddit user [hundredpercentcocoa](https://www.reddit.com/user/hundredpercentcocoa/)
 

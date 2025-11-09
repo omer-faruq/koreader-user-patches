@@ -62,8 +62,8 @@ local function pickRandomReceiptBackgroundImage()
     return files[math.random(#files)]
 end
 
-local function buildBackgroundImageWidget(image_path)
-    if not image_path then
+local function buildBackgroundImageWidget(image_source)
+    if not image_source then
         return nil
     end
 
@@ -75,10 +75,15 @@ local function buildBackgroundImageWidget(image_path)
     local screen_size = Screen:getSize()
     local screen_w, screen_h = screen_size.w, screen_size.h
     local image_opts = {
-        file = image_path,
         alpha = true,
         file_do_cache = false,
     }
+
+    if type(image_source) == "string" then
+        image_opts.file = image_source
+    else
+        image_opts.image = image_source
+    end
 
     if mode == "stretch" then
         image_opts.width = screen_w
@@ -101,7 +106,14 @@ local function buildBackgroundImageWidget(image_path)
     return image_widget
 end
 
-local function getReceiptBackground()
+local function getActiveDocumentCover(ui)
+    if not ui or not ui.document or not ui.bookinfo then
+        return nil
+    end
+    return ui.bookinfo:getCoverImage(ui.document)
+end
+
+local function getReceiptBackground(ui)
     local choice = G_reader_settings:readSetting(BOOK_RECEIPT_BG_SETTING) or "white"
 
     if choice == "transparent" then
@@ -117,6 +129,16 @@ local function getReceiptBackground()
             end
         end
         logger.warn("Book receipt: no background image found, falling back to transparent")
+        return nil, nil
+    elseif choice == "book_cover" then
+        local cover_bb = getActiveDocumentCover(ui)
+        if cover_bb then
+            local widget = buildBackgroundImageWidget(cover_bb)
+            if widget then
+                return nil, widget
+            end
+        end
+        logger.warn("Book receipt: no cover available for background, falling back to transparent")
         return nil, nil
     end
 
@@ -304,6 +326,25 @@ local function buildReceipt(ui, state)
     local db_padding = 20
     local db_padding_internal = 8
 
+    local message_text
+    if Device.screen_saver_mode and G_reader_settings:isTrue("screensaver_show_message") then
+        local configured_message = G_reader_settings:readSetting("screensaver_message")
+        configured_message = configured_message and util.trim(configured_message)
+        if configured_message and configured_message ~= "" then
+            if ui and ui.bookinfo and ui.bookinfo.expandString then
+                message_text = ui.bookinfo:expandString(configured_message) or configured_message
+            else
+                message_text = configured_message
+            end
+            if message_text then
+                message_text = util.trim(message_text)
+                if message_text == "" then
+                    message_text = nil
+                end
+            end
+        end
+    end
+
     local function databox(typename, itemname, pages_done, pages_total, time_left_text, pages_done_display, pages_total_display)
         local pages_done_num = tonumber(pages_done) or 0
         local pages_total_num = tonumber(pages_total) or 0
@@ -415,8 +456,10 @@ local function buildReceipt(ui, state)
     local bookbox = databox("Book", bookboxtitle, page_no_numeric, page_total_numeric, book_time_left, page_no_display, page_total_display)
     local chapterbox = databox("Chapter", chapter_title, chapter_done, chapter_total, chapter_time_left)
 
+    local bg_choice = bg_choice or G_reader_settings:readSetting(BOOK_RECEIPT_BG_SETTING)
+    local show_cover = not (Device.screen_saver_mode and bg_choice == "book_cover")
     local cover_widget
-    if ui.bookinfo and ui.document then
+    if show_cover and ui.bookinfo and ui.document then
         local cover_bb = ui.bookinfo:getCoverImage(ui.document)
         if cover_bb then
             local cover_width = cover_bb:getWidth()
@@ -446,6 +489,20 @@ local function buildReceipt(ui, state)
     table.insert(content_children, chapterbox)
     table.insert(content_children, VerticalSpan:new{ width = db_padding_internal })
     table.insert(content_children, bookbox)
+    if message_text then
+        table.insert(content_children, VerticalSpan:new{ width = db_padding_internal })
+        table.insert(content_children, VerticalGroup:new{
+            TextBoxWidget:new{
+                face = Font:getFace(db_font_face, db_font_size_mid),
+                text = message_text,
+                width = widget_width,
+                fgcolor = db_font_color,
+                bold = true,
+                alignment = "center",
+            },
+            VerticalSpan:new{ width = db_padding_internal },
+        })
+    end
     table.insert(content_children, VerticalSpan:new{ width = db_padding_internal })
     table.insert(content_children, bottom_bar)
 
@@ -589,7 +646,7 @@ Screensaver.show = function(self)
         local receipt_widget = buildReceipt(ui, state)
 
         if receipt_widget then
-            local background_color, background_widget = getReceiptBackground()
+            local background_color, background_widget = getReceiptBackground(ui)
             local widget_to_show = receipt_widget
 
             if background_widget then
@@ -662,10 +719,12 @@ _G.dofile = function(filepath)
                     genMenuItem(_("Transparent"), BOOK_RECEIPT_BG_SETTING, "transparent"),
                     genMenuItem(_("Black fill"), BOOK_RECEIPT_BG_SETTING, "black"),
                     genMenuItem(_("Random image"), BOOK_RECEIPT_BG_SETTING, "random_image"),
+                    genMenuItem(_("Book cover"), BOOK_RECEIPT_BG_SETTING, "book_cover"),
                     {
-                        text = _("Random image placement"),
+                        text = _("Background image placement"),
                         enabled_func = function()
-                            return G_reader_settings:readSetting(BOOK_RECEIPT_BG_SETTING) == "random_image"
+                            local value = G_reader_settings:readSetting(BOOK_RECEIPT_BG_SETTING)
+                            return value == "random_image" or value == "book_cover"
                         end,
                         sub_item_table = {
                             genMenuItem(_("Fit to screen"), BOOK_RECEIPT_BG_IMAGE_MODE_SETTING, "fit"),
