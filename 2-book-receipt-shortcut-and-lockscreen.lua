@@ -38,6 +38,7 @@ local BOOK_RECEIPT_CONTENT_MODE_SETTING = "book_receipt_content_mode"
 
 local MAX_HIGHLIGHT_SIZE = 500
 local HIDE_COVER_FOR_LARGE_HIGHLIGHTS = 300
+local BOOK_RECEIPT_COVER_SCALE = 1
 
 local CONTENT_MODE_BOOK_RECEIPT = "book_receipt"
 local CONTENT_MODE_HIGHLIGHT_PROGRESS = "highlight_progress"
@@ -484,6 +485,18 @@ local function buildReceipt(ui, state)
             })
         end
 
+        if options.total_time_text then
+            table.insert(elements, VerticalSpan:new{ width = db_padding_internal })
+            table.insert(elements, TextWidget:new{
+                text = options.total_time_text,
+                face = Font:getFace(db_font_face_italics, db_font_size_small),
+                bold = false,
+                fgcolor = db_font_color,
+                padding = 0,
+                align = "right",
+            })
+        end
+
         table.insert(elements, VerticalSpan:new{ width = db_padding_internal })
 
         return VerticalGroup:new(elements)
@@ -519,9 +532,15 @@ local function buildReceipt(ui, state)
         local candidates = { CONTENT_MODE_BOOK_RECEIPT, CONTENT_MODE_HIGHLIGHT_PROGRESS }
         content_mode = candidates[math.random(#candidates)]
     end
+    local book_total_time_text
+    if statistics and content_mode ~= CONTENT_MODE_HIGHLIGHT_PROGRESS then
+        book_total_time_text = string.format("Total time spent: %s", secs_to_timestring(statistics.book_read_time))
+    end
+
     local bookbox = databox("Book", bookboxtitle, page_no_numeric, page_total_numeric, book_time_left, page_no_display, page_total_display, {
         hide_title = content_mode == CONTENT_MODE_HIGHLIGHT_PROGRESS,
         hide_time = content_mode == CONTENT_MODE_HIGHLIGHT_PROGRESS,
+        total_time_text = book_total_time_text,
     })
     local chapterbox = content_mode ~= CONTENT_MODE_HIGHLIGHT_PROGRESS and databox("Chapter", chapter_title, chapter_done, chapter_total, chapter_time_left) or nil
 
@@ -533,8 +552,8 @@ local function buildReceipt(ui, state)
         if cover_bb then
             local cover_width = cover_bb:getWidth()
             local cover_height = cover_bb:getHeight()
-            local max_width = widget_width
-            local max_height = math.floor(Screen:getHeight() / 3)
+            local max_width = math.floor(widget_width * BOOK_RECEIPT_COVER_SCALE)
+            local max_height = math.floor(Screen:getHeight() / 3 * BOOK_RECEIPT_COVER_SCALE)
             local scale = math.min(1, max_width / cover_width, max_height / cover_height)
             if scale < 1 then
                 local scaled_w = math.max(1, math.floor(cover_width * scale))
