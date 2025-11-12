@@ -28,6 +28,7 @@ local datetime = require("datetime")
 local logger = require("logger")
 local util = require("util")
 local ffiUtil = require("ffi/util")
+local SQ3 = require("lua-ljsqlite3/init")
 local _ = require("gettext")
 
 local Screen = Device.screen 
@@ -39,6 +40,7 @@ local BOOK_RECEIPT_CONTENT_MODE_SETTING = "book_receipt_content_mode"
 local MAX_HIGHLIGHT_SIZE = 500
 local HIDE_COVER_FOR_LARGE_HIGHLIGHTS = 300
 local BOOK_RECEIPT_COVER_SCALE = 1
+local STATISTICS_DB_PATH = DataStorage:getSettingsDir() .. "/statistics.sqlite3"
 
 local CONTENT_MODE_BOOK_RECEIPT = "book_receipt"
 local CONTENT_MODE_HIGHLIGHT_PROGRESS = "highlight_progress"
@@ -73,6 +75,89 @@ local function utf8TrimToLength(str, max_chars)
         return str:sub(1, cut_index - 1), char_count, true
     end
     return str, char_count, false
+end
+
+local function getLocalizedDayName(timestamp)
+    local day_key = timestamp and os.date("%A", timestamp)
+    if not day_key then
+        return ""
+    end
+    if datetime and datetime.longDayTranslation and datetime.longDayTranslation[day_key] then
+        return datetime.longDayTranslation[day_key]
+    end
+    return day_key
+end
+
+local function getBookTodayDuration(statistics)
+    if not statistics then
+        return nil
+    end
+
+    if statistics.isEnabled and not statistics:isEnabled() then
+        return nil
+    end
+
+    if statistics.insertDB then
+        pcall(statistics.insertDB, statistics)
+    end
+
+    local id_book = statistics.id_curr_book
+    if (not id_book) and statistics.getIdBookDB then
+        local ok, book_id = pcall(statistics.getIdBookDB, statistics)
+        if ok then
+            id_book = book_id
+        end
+    end
+    if not id_book then
+        return nil
+    end
+
+    if not STATISTICS_DB_PATH or STATISTICS_DB_PATH == "" then
+        return nil
+    end
+
+    local attrs = lfs.attributes(STATISTICS_DB_PATH, "mode")
+    if attrs ~= "file" then
+        return nil
+    end
+
+    local now_stamp = os.time()
+    local now_t = os.date("*t", now_stamp)
+    local from_begin_day = now_t.hour * 3600 + now_t.min * 60 + now_t.sec
+    local start_today_time = now_stamp - from_begin_day
+
+    local ok_conn, conn = pcall(SQ3.open, STATISTICS_DB_PATH)
+    if not ok_conn or not conn then
+        return nil
+    end
+
+    local sql_stmt = string.format([[SELECT sum(sum_duration)
+        FROM (
+            SELECT sum(duration) AS sum_duration
+            FROM page_stat
+            WHERE start_time >= %d AND id_book = %d
+            GROUP BY page
+        );
+    ]], start_today_time, id_book)
+
+    local ok_row, today_duration = pcall(function()
+        return conn:rowexec(sql_stmt)
+    end)
+    conn:close()
+
+    if not ok_row or today_duration == nil then
+        return nil
+    end
+
+    today_duration = tonumber(today_duration)
+    if not today_duration then
+        return nil
+    end
+
+    if today_duration < 0 then
+        today_duration = 0
+    end
+    return today_duration
 end
 
 local function getRandomHighlightAnnotation(ui)
@@ -497,6 +582,18 @@ local function buildReceipt(ui, state)
             })
         end
 
+        if options.today_time_text then
+            table.insert(elements, VerticalSpan:new{ width = db_padding_internal })
+            table.insert(elements, TextWidget:new{
+                text = options.today_time_text,
+                face = Font:getFace(db_font_face_italics, db_font_size_small),
+                bold = false,
+                fgcolor = db_font_color,
+                padding = 0,
+                align = "right",
+            })
+        end
+
         table.insert(elements, VerticalSpan:new{ width = db_padding_internal })
 
         return VerticalGroup:new(elements)
@@ -533,14 +630,21 @@ local function buildReceipt(ui, state)
         content_mode = candidates[math.random(#candidates)]
     end
     local book_total_time_text
+    local book_today_time_text
     if statistics and content_mode ~= CONTENT_MODE_HIGHLIGHT_PROGRESS then
         book_total_time_text = string.format("Total time spent: %s", secs_to_timestring(statistics.book_read_time))
+        local today_duration = getBookTodayDuration(statistics)
+        if today_duration then
+            local day_label = getLocalizedDayName(os.time())
+            book_today_time_text = string.format("Time spent today (%s): %s", day_label, secs_to_timestring(today_duration))
+        end
     end
 
     local bookbox = databox("Book", bookboxtitle, page_no_numeric, page_total_numeric, book_time_left, page_no_display, page_total_display, {
         hide_title = content_mode == CONTENT_MODE_HIGHLIGHT_PROGRESS,
         hide_time = content_mode == CONTENT_MODE_HIGHLIGHT_PROGRESS,
         total_time_text = book_total_time_text,
+        today_time_text = book_today_time_text,
     })
     local chapterbox = content_mode ~= CONTENT_MODE_HIGHLIGHT_PROGRESS and databox("Chapter", chapter_title, chapter_done, chapter_total, chapter_time_left) or nil
 
