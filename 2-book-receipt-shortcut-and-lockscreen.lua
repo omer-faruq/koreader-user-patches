@@ -12,6 +12,7 @@ local DataStorage = require("datastorage")
 local DocumentRegistry = require("document/documentregistry")
 local ImageWidget = require("ui/widget/imagewidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
+local InputDialog = require("ui/widget/inputdialog")													
 local ProgressWidget = require("ui/widget/progresswidget")
 local ReaderUI = require("apps/reader/readerui")
 local RenderImage = require("ui/renderimage")
@@ -36,10 +37,11 @@ local T = ffiUtil.template
 local BOOK_RECEIPT_BG_SETTING = "book_receipt_screensaver_background"
 local BOOK_RECEIPT_BG_IMAGE_MODE_SETTING = "book_receipt_bg_image_mode"
 local BOOK_RECEIPT_CONTENT_MODE_SETTING = "book_receipt_content_mode"
+local BOOK_RECEIPT_COVER_SCALE_SETTING = "book_receipt_cover_scale"
 
 local MAX_HIGHLIGHT_SIZE = 500
 local HIDE_COVER_FOR_LARGE_HIGHLIGHTS = 300
-local BOOK_RECEIPT_COVER_SCALE = 1
+								  
 local STATISTICS_DB_PATH = DataStorage:getSettingsDir() .. "/statistics.sqlite3"
 
 local CONTENT_MODE_BOOK_RECEIPT = "book_receipt"
@@ -651,10 +653,11 @@ local function buildReceipt(ui, state)
     if show_cover and ui.bookinfo and ui.document then
         local cover_bb = ui.bookinfo:getCoverImage(ui.document)
         if cover_bb then
+			local cover_scale = G_reader_settings:readSetting(BOOK_RECEIPT_COVER_SCALE_SETTING) or 1
             local cover_width = cover_bb:getWidth()
             local cover_height = cover_bb:getHeight()
-            local max_width = math.floor(widget_width * BOOK_RECEIPT_COVER_SCALE)
-            local max_height = math.floor(Screen:getHeight() / 3 * BOOK_RECEIPT_COVER_SCALE)
+            local max_width = math.floor(widget_width * cover_scale)
+            local max_height = math.floor(Screen:getHeight() / 3 * cover_scale)
             local scale = math.min(1, max_width / cover_width, max_height / cover_height)
             if scale < 1 then
                 local scaled_w = math.max(1, math.floor(cover_width * scale))
@@ -1041,6 +1044,45 @@ _G.dofile = function(filepath)
                             G_reader_settings:saveSetting(BOOK_RECEIPT_CONTENT_MODE_SETTING, CONTENT_MODE_RANDOM)
                         end,
                         radio = true,
+                    },
+                    {
+                        text = _("Cover scale"),
+                        keep_menu_open = true,
+                        callback = function(touchmenu_instance)
+                            local current_value = G_reader_settings:readSetting(BOOK_RECEIPT_COVER_SCALE_SETTING) or 1
+                            local input_dialog
+                            input_dialog = InputDialog:new{
+                                title = _("Cover scale (default: 1.0)\nSet to 0 to hide cover"),
+								input = tostring(current_value),
+                                input_type = "number",
+                                buttons = {
+                                    {
+                                        {
+                                            text = _("Cancel"),
+                                            id = "close",
+                                            callback = function()
+                                                UIManager:close(input_dialog)
+                                            end,
+                                        },
+										{
+											text = _("Set"),
+											is_enter_default = true,
+											callback = function()
+												local input_text = input_dialog:getInputText()
+												input_text = input_text:gsub(",", ".")
+												local new_value = tonumber(input_text)
+												if new_value and new_value > 0 then
+													G_reader_settings:saveSetting(BOOK_RECEIPT_COVER_SCALE_SETTING, new_value)
+													UIManager:close(input_dialog)
+												end
+											end,
+										},
+                                    },
+                                },
+                            }
+                            UIManager:show(input_dialog)
+                            input_dialog:onShowKeyboard()
+                        end,
                     },
                 },
             }
