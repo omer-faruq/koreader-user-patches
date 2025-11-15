@@ -272,7 +272,6 @@ local function getReceiptBackground(ui)
                 return nil, widget
             end
         end
-        logger.warn("Book receipt: no background image found, falling back to transparent")
         return nil, nil
     elseif choice == "book_cover" then
         local cover_bb = getActiveDocumentCover(ui)
@@ -282,7 +281,6 @@ local function getReceiptBackground(ui)
                 return nil, widget
             end
         end
-        logger.warn("Book receipt: no cover available for background, falling back to transparent")
         return nil, nil
     end
 
@@ -321,7 +319,6 @@ end
 
 local function showFallbackScreensaver(self, orig_show)
     local fallback_type = getBookReceiptFallbackType()
-    logger.dbg("Book receipt: using fallback screensaver", fallback_type)
 
     local original_type = self.screensaver_type
     local event = getEventFromPrefix(self.prefix)
@@ -813,7 +810,6 @@ function quicklookbox:init()
     if receipt_widget then
         self[1] = receipt_widget
     else
-        logger.warn("Book receipt: failed to build quick look widget")
         self[1] = CenterContainer:new{
             dimen = Screen:getSize(),
             TextWidget:new{
@@ -902,58 +898,58 @@ local Screensaver = require("ui/screensaver")
 local orig_screensaver_show = Screensaver.show
 
 Screensaver.show = function(self)
-    if self.screensaver_type == "book_receipt" then
-        logger.dbg("Book receipt: screensaver activated")
+    if self.screensaver_type ~= "book_receipt" then
+        return orig_screensaver_show(self)
+    end
 
-        if self.screensaver_widget then
-            UIManager:close(self.screensaver_widget)
-            self.screensaver_widget = nil
-        end
-
-        Device.screen_saver_mode = true
-
-        local rotation_mode = Screen:getRotationMode()
-        Device.orig_rotation_mode = rotation_mode
-        if bit.band(rotation_mode, 1) == 1 then
-            Screen:setRotationMode(Screen.DEVICE_ROTATED_UPRIGHT)
-        else
-            Device.orig_rotation_mode = nil
-        end
-
-        local ui = self.ui or ReaderUI.instance
-        local state = ui and ui.view and ui.view.state
-        local receipt_widget = buildReceipt(ui, state)
-
-        if receipt_widget then
-            local background_color, background_widget = getReceiptBackground(ui)
-            local widget_to_show = receipt_widget
-
-            if background_widget then
-                widget_to_show = OverlapGroup:new{
-                    dimen = Screen:getSize(),
-                    background_widget,
-                    receipt_widget,
-                }
-            end
-
-            self.screensaver_widget = ScreenSaverWidget:new{
-                widget = widget_to_show,
-                background = background_color,
-                covers_fullscreen = true,
-            }
-            self.screensaver_widget.modal = true
-            self.screensaver_widget.dithered = true
-            UIManager:show(self.screensaver_widget, "full")
-        else
-            logger.warn("Book receipt: failed to build widget, falling back to default screensaver")
-            showFallbackScreensaver(self, orig_screensaver_show)
-        end
-
+    local ui = self.ui or ReaderUI.instance
+    if not hasActiveDocument(ui) then
+        showFallbackScreensaver(self, orig_screensaver_show)
         return
     end
 
-    logger.dbg("Book receipt: no active document, using fallback screensaver")
-    showFallbackScreensaver(self, orig_screensaver_show)
+    if self.screensaver_widget then
+        UIManager:close(self.screensaver_widget)
+        self.screensaver_widget = nil
+    end
+
+    Device.screen_saver_mode = true
+
+    local rotation_mode = Screen:getRotationMode()
+    Device.orig_rotation_mode = rotation_mode
+    if bit.band(rotation_mode, 1) == 1 then
+        Screen:setRotationMode(Screen.DEVICE_ROTATED_UPRIGHT)
+    else
+        Device.orig_rotation_mode = nil
+    end
+
+    local state = ui and ui.view and ui.view.state
+    local receipt_widget = buildReceipt(ui, state)
+
+    if receipt_widget then
+        local background_color, background_widget = getReceiptBackground(ui)
+        local widget_to_show = receipt_widget
+
+        if background_widget then
+            widget_to_show = OverlapGroup:new{
+                dimen = Screen:getSize(),
+                background_widget,
+                receipt_widget,
+            }
+        end
+
+        self.screensaver_widget = ScreenSaverWidget:new{
+            widget = widget_to_show,
+            background = background_color,
+            covers_fullscreen = true,
+        }
+        self.screensaver_widget.modal = true
+        self.screensaver_widget.dithered = true
+        UIManager:show(self.screensaver_widget, "full")
+    else
+        logger.warn("Book receipt: failed to build widget, falling back to default screensaver")
+        showFallbackScreensaver(self, orig_screensaver_show)
+    end
 end
 
 -- Add screensaver menu option
@@ -964,7 +960,6 @@ _G.dofile = function(filepath)
     local result = orig_dofile(filepath)
 
     if filepath and filepath:match("screensaver_menu%.lua$") then
-        logger.dbg("Book receipt: patching screensaver menu")
 
         if result and result[1] and result[1].sub_item_table then
             local wallpaper_submenu = result[1].sub_item_table
@@ -1063,4 +1058,3 @@ _G.dofile = function(filepath)
 
     return result
 end
-
