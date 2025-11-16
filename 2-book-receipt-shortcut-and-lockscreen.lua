@@ -1071,7 +1071,7 @@ _G.dofile = function(filepath)
 												local input_text = input_dialog:getInputText()
 												input_text = input_text:gsub(",", ".")
 												local new_value = tonumber(input_text)
-												if new_value and new_value > 0 then
+												if new_value and new_value >= 0 then
 													G_reader_settings:saveSetting(BOOK_RECEIPT_COVER_SCALE_SETTING, new_value)
 													UIManager:close(input_dialog)
 												end
