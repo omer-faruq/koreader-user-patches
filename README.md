@@ -27,6 +27,26 @@ Displays reading progress in a visual "receipt" format showing book/chapter prog
 
 ---
 
+## 2-dual-state-screensaver-mode.lua
+Adds a new screensaver type, **Dual-state screensaver mode**, which lets you use different screensavers depending on where you are:
+- **Book list mode** (File Manager / library)
+- **Book mode** (Reader)
+
+You can configure each state to use either:
+- A dedicated random-image folder (`book_list_screensavers` / `book_mode_screensavers`)
+- Any of KOReader's existing wallpaper/screensaver types (e.g., `cover`, `random_image`, etc.)
+
+**Setup (optional):**
+- To use Book list screensavers, create `book_list_screensavers` under the `koreader` folder and put images inside it.
+- To use Book mode screensavers, create `book_mode_screensavers` under the `koreader` folder and put images inside it.
+
+**Where to configure:**
+- Open KOReader settings for wallpaper/screensaver type.
+- Select `Dual-state screensaver mode`.
+- Go into `Dual state settings` to configure both states and their image placement (`center`, `fit`, `stretch`) when using the dedicated folders.
+
+---
+
 ## 2-exclude-books-from-wallpaper-cover-mode.lua
 Lists specific books or directories whose covers should be replaced with random images when KOReader's wallpaper cover mode is active, optionally drawing exclusions from `wallpaper-cover-exclude.txt`.
 
