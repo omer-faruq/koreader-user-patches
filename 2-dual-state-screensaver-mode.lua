@@ -330,6 +330,10 @@ end
 
 local orig_setup = Screensaver.setup
 Screensaver.setup = function(self, event, event_message)
+    if self._dual_state_dispatching then
+        return orig_setup(self, event, event_message)
+    end
+
     local prefix = event and (event .. "_") or ""
 
     local current_type = G_reader_settings:readSetting(prefix .. "screensaver_type")
@@ -379,7 +383,10 @@ Screensaver.setup = function(self, event, event_message)
         G_reader_settings:saveSetting(dir_key, effective_dir)
     end
 
-    local ok, err = pcall(orig_setup, self, event, event_message)
+    local top_setup = Screensaver.setup
+    self._dual_state_dispatching = true
+    local ok, err = pcall(top_setup, self, event, event_message)
+    self._dual_state_dispatching = nil
 
     restoreSetting(type_key, type_existed, type_old)
     restoreSetting(dir_key, dir_existed, dir_old)
