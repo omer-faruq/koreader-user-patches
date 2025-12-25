@@ -47,6 +47,20 @@ You can configure each state to use either:
 
 ---
 
+## 2-random-book-cover-screensaver.lua
+Adds a new screensaver type, **Show random book cover on sleep screen**, that dynamically picks what to display:
+- In **Reader**: shows the current book cover.
+- In **File Manager**: picks a random book under the current folder (skipping dot-directories) and shows its cover.
+
+If no suitable book/cover is found, it falls back to KOReader's existing screensaver behavior (e.g., `random_image` when a folder is configured, or the configured custom image).
+
+**Where to configure:**
+- Open KOReader settings for wallpaper/screensaver type.
+- Select `Show random book cover on sleep screen`.
+- Configure `Random book cover mode` (`Fit`, `Stretch`, `Center`).
+
+---
+
 ## 2-exclude-books-from-wallpaper-cover-mode.lua
 Lists specific books or directories whose covers should be replaced with random images when KOReader's wallpaper cover mode is active, optionally drawing exclusions from `wallpaper-cover-exclude.txt`.
 
