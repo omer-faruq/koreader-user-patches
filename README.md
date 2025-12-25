@@ -62,6 +62,9 @@ Adds two new configurable Gesture Manager entries for one-finger vertical edge s
 ## 2-recursive-file-counts.lua
 Shows the folder's direct file count and, when different, the total number of files contained in all nested subdirectories in KOReader's file list.
 
+**Parameter:**
+- `SHOW_DIRECT_AND_TOTAL_FILE_COUNTS`: when `true`, shows `direct(total)` if total differs, otherwise shows `direct` only; when `false`, always shows only the total (recursive) file count.
+
 ---
 
 ## 2-sleep-overlay.lua
