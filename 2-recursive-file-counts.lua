@@ -1,3 +1,6 @@
+-- When true, show direct file count and total (recursive) file count; when false, always show only the total (recursive) file count.
+local SHOW_DIRECT_AND_TOTAL_FILE_COUNTS = true
+
 local FileChooser = require("ui/widget/filechooser")
 local util = require("util")
 local lfs = require("libs/libkoreader-lfs")
@@ -58,10 +61,14 @@ function FileChooser:getMenuItemMandatory(item, collate)
     local total_files = getRecursiveFileCount(self, item.path)
 
     local text
-    if total_files > direct_files then
-        text = T("%1(%2) \u{F016}", direct_files, total_files)
+    if SHOW_DIRECT_AND_TOTAL_FILE_COUNTS then
+        if total_files > direct_files then
+            text = T("%1(%2) \u{F016}", direct_files, total_files)
+        else
+            text = T("%1 \u{F016}", direct_files)
+        end
     else
-        text = T("%1 \u{F016}", direct_files)
+        text = T("%1 \u{F016}", total_files)
     end
 
     if #sub_dirs > 0 then
