@@ -52,6 +52,13 @@ Lists specific books or directories whose covers should be replaced with random 
 
 ---
 
+## 2-gesture-manager-top-bottom-edge-vertical-swipes.lua
+Adds two new configurable Gesture Manager entries for one-finger vertical edge swipes:
+- `Top edge down`
+- `Bottom edge up`
+
+---
+
 ## 2-recursive-file-counts.lua
 Shows the folder's direct file count and, when different, the total number of files contained in all nested subdirectories in KOReader's file list.
 
