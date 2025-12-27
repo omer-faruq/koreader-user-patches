@@ -47,6 +47,18 @@ You can configure each state to use either:
 
 ---
 
+## 2-exclude-books-from-wallpaper-cover-mode.lua
+Lists specific books or directories whose covers should be replaced with random images when KOReader's wallpaper cover mode is active, optionally drawing exclusions from `wallpaper-cover-exclude.txt`.
+
+---
+
+## 2-gesture-manager-top-bottom-edge-vertical-swipes.lua
+Adds two new configurable Gesture Manager entries for one-finger vertical edge swipes:
+- `Top edge down`
+- `Bottom edge up`
+
+---
+
 ## 2-random-book-cover-screensaver.lua
 Adds a new screensaver type, **Show random book cover on sleep screen**, that dynamically picks what to display:
 - In **Reader**: shows the current book cover.
@@ -61,15 +73,13 @@ If no suitable book/cover is found, it falls back to KOReader's existing screens
 
 ---
 
-## 2-exclude-books-from-wallpaper-cover-mode.lua
-Lists specific books or directories whose covers should be replaced with random images when KOReader's wallpaper cover mode is active, optionally drawing exclusions from `wallpaper-cover-exclude.txt`.
+## 2-reading-stats-current-book-days-percent.lua
+Enhances the per-day entries in **Statistics** for the current book by appending the daily pages read as a percentage of the book's total pages. ( ie, this page: Tools > Reading Statistics > Current Book > Days reading this book)
 
----
+Example output format:
+- `HH:MM (X pages), Y.YY%`
 
-## 2-gesture-manager-top-bottom-edge-vertical-swipes.lua
-Adds two new configurable Gesture Manager entries for one-finger vertical edge swipes:
-- `Top edge down`
-- `Bottom edge up`
+The total page count is inferred from the statistics database when available.
 
 ---
 
