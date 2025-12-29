@@ -59,6 +59,22 @@ Adds two new configurable Gesture Manager entries for one-finger vertical edge s
 
 ---
 
+## 2-menu-tap-swipe-zone-heights.lua
+Lets you fine-tune the tap/swipe trigger zone heights for opening KOReader menus:
+- **Top menu** (Reader + File Manager) tap/swipe zones
+- **Bottom config menu** (Reader) tap/swipe zones
+
+**Heights (pixels):**
+- `0` disables that gesture entirely.
+- `-1` keeps KOReader's default height (≈ 1/8 of screen height).
+- `>0` sets an explicit pixel height. Ratio is derived from your screen height at runtime.
+
+**How to set:**
+- Open the file and set `TOP_MENU_TAP_HEIGHT_PX`, `TOP_MENU_SWIPE_HEIGHT_PX`, `BOTTOM_MENU_TAP_HEIGHT_PX`, `BOTTOM_MENU_SWIPE_HEIGHT_PX`.
+- Restart KOReader.
+
+---
+
 ## 2-random-book-cover-screensaver.lua
 Adds a new screensaver type, **Show random book cover on sleep screen**, that dynamically picks what to display:
 - In **Reader**: shows the current book cover.
