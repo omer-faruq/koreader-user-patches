@@ -751,49 +751,13 @@ local function composeOverlay(self)
     self._sleep_overlay_applied = true
 end
 
-local function attachOverlayToScreensaverWidget(sswidget, base_widget)
-    if not sswidget or sswidget._sleep_overlay_wrapped then
-        return
-    end
-    local widget_to_wrap = base_widget or sswidget.widget
-    if not widget_to_wrap then
-        return
-    end
-    if not Screensaver._sleep_overlay_widget then
-        local ok, err = pcall(composeOverlay, Screensaver)
-        if not ok then
-            logger.err("SleepOverlay: compose during widget attach failed", err)
-            return
-        end
-    end
-    local overlay_widget = Screensaver._sleep_overlay_widget
-    if not overlay_widget then
-        return
-    end
-    sswidget.widget = OverlapGroup:new{
-        allow_mirroring = false,
-        widget_to_wrap,
-        overlay_widget,
-    }
-    sswidget._sleep_overlay_wrapped = true
-    if sswidget.update then
-        sswidget:update()
-    end
-    UIManager:setDirty(sswidget, function()
-        return "full", sswidget.main_frame and sswidget.main_frame.dimen or sswidget.region
-    end)
-    Screensaver._sleep_overlay_widget = nil
-end
-
 local orig_show = Screensaver.show
 function Screensaver:show(...)
     local ok, err = pcall(composeOverlay, self)
     if not ok then
         logger.err("SleepOverlay: compose failed", err)
     end
-    local result = orig_show(self, ...)
-    attachOverlayToScreensaverWidget(self.screensaver_widget)
-    return result
+    return orig_show(self, ...)
 end
 
 local orig_cleanup = Screensaver.cleanup
@@ -811,7 +775,18 @@ end
 
 local orig_sswidget_init = ScreenSaverWidget.init
 function ScreenSaverWidget:init(...)
-    local existing_widget = self.widget
+    -- Attach overlay BEFORE calling original init so it's included in FrameContainer
+    if Screensaver._sleep_overlay_widget and self.widget and not self._sleep_overlay_wrapped then
+        local overlay_widget = Screensaver._sleep_overlay_widget
+        self.widget = OverlapGroup:new{
+            allow_mirroring = false,
+            self.widget,
+            overlay_widget,
+        }
+        self._sleep_overlay_wrapped = true
+        Screensaver._sleep_overlay_widget = nil
+    end
+    
+    -- Call original init which creates FrameContainer with self.widget
     orig_sswidget_init(self, ...)
-    attachOverlayToScreensaverWidget(self, existing_widget)
 end
