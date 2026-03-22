@@ -775,6 +775,22 @@ end
 
 local orig_sswidget_init = ScreenSaverWidget.init
 function ScreenSaverWidget:init(...)
+    -- If overlay hasn't been composed yet (e.g., when plugins bypass Screensaver:show),
+    -- compose it now using a temporary Screensaver-like object
+    if not Screensaver._sleep_overlay_widget and not Screensaver._sleep_overlay_applied then
+        local temp_screensaver = {
+            _sleep_overlay_applied = false,
+            _sleep_overlay_widget = nil,
+            modeIsImage = function() return true end,
+        }
+        local ok, err = pcall(composeOverlay, temp_screensaver)
+        if ok and temp_screensaver._sleep_overlay_widget then
+            Screensaver._sleep_overlay_widget = temp_screensaver._sleep_overlay_widget
+        elseif not ok then
+            logger.err("SleepOverlay: compose failed in ScreenSaverWidget:init", err)
+        end
+    end
+    
     -- Attach overlay BEFORE calling original init so it's included in FrameContainer
     if Screensaver._sleep_overlay_widget and self.widget and not self._sleep_overlay_wrapped then
         local overlay_widget = Screensaver._sleep_overlay_widget
