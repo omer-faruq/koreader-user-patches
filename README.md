@@ -125,5 +125,20 @@ Sticker parameters:
 
 ---
 
+## 2-toc-level-selector.lua
+Lets you choose which TOC levels (h1, h2, h3, etc.) to show or hide **per book**. Hidden levels are removed everywhere (TOC viewer, navigation, footer chapter titles, statistics, etc.), not just from progress bar ticks. Depth numbers are compacted so visible levels stay contiguous.
+
+**How to use:**
+- Open a book, then the Reader main menu.
+- Tap `Select visible TOC levels` to open the picker.
+- Toggle any depth to hide/show it; `Reset all to visible` clears hiding.
+- Tap `Apply changes` to save per-book settings and rebuild the TOC with the new visibility.
+
+**Notes:**
+- Settings persist per book across sessions.
+- If you hide all levels, the TOC can be empty by design.
+
+---
+
 ## Credits
 These patches were created with assistance from Windurf (AI).
