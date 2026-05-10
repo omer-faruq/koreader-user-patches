@@ -75,6 +75,25 @@ Lets you fine-tune the tap/swipe trigger zone heights for opening KOReader menus
 
 ---
 
+## 2-precise-line-word-navigation.lua
+Enables precise line-by-line and word-by-word cursor movement for highlight selection on non-touch devices (e.g., Kindle 4).
+
+**Features:**
+- **Up/Down arrows** move the highlight indicator exactly one line at a time
+- **Left/Right arrows** jump from word to word
+- Prevents multi-line or multi-word skipping during navigation
+- Uses intelligent text detection to align cursor with actual text positions
+- Caches line height for consistent vertical movement
+- Automatically handles page boundaries and status bar areas
+
+**How it works:**
+- Overrides the default highlight indicator movement behavior
+- Samples multiple positions to calculate consistent line heights
+- Searches for text on target lines to ensure accurate positioning
+- Maintains cursor alignment with word boundaries during horizontal navigation
+
+---
+
 ## 2-random-book-cover-screensaver.lua
 Adds a new screensaver type, **Show random book cover on sleep screen**, that dynamically picks what to display:
 - In **Reader**: shows the current book cover.
