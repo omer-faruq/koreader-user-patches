@@ -53,7 +53,7 @@ Lists specific books or directories whose covers should be replaced with random 
 ---
 
 ## 2-fallbackcover.lua
-Displays a chosen image as the cover for any book that has no embedded cover art, in both mosaic and list CoverBrowser modes.
+Displays a chosen image as the cover for any book that has no embedded cover art, in both mosaic and list CoverBrowser modes. Optionally overlays the book title and author on the image.
 
 **Setup:**
 1. Copy `2-fallbackcover.lua` into the `koreader/patches/` folder.
@@ -61,9 +61,17 @@ Displays a chosen image as the cover for any book that has no embedded cover art
 
 No editing required. Alternatively, open the file and set `FALLBACK_IMAGE_PATH` to an absolute path pointing to any image anywhere on the device.
 
+**Configuration (top of the file):**
+- `FALLBACK_IMAGE_PATH` — leave as `nil` for auto-detect, or set an absolute path to any image.
+- `SHOW_TITLE` — set to `true` to overlay the book title on the fallback cover, `false` to disable.
+- `SHOW_AUTHOR` — set to `true` to also show the author below the title (only used when `SHOW_TITLE` is `true`).
+
+The title and author text is word-wrapped (up to 3 lines for title, 1 line for author), centered horizontally and vertically on the image, rendered in black directly on the image without any background. Font size scales with cover height.
+
 **Requirements:**
 - KOReader's CoverBrowser plugin must be enabled.
 - Only books that have been fully indexed (cover extraction attempted) but found to have no cover will show the fallback. Books not yet scanned will be indexed normally first.
+- If you later assign a real cover to a book via KOReader, it will immediately take precedence over the fallback.
 
 ---
 

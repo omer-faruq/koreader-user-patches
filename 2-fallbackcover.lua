@@ -30,6 +30,10 @@ Version: 1.0.0
 -- Leave as nil to auto-detect from the patches/ folder (recommended).
 -- Or set an explicit path, e.g. "/mnt/onboard/covers/default.jpg"
 local FALLBACK_IMAGE_PATH = nil
+
+-- Set to true to overlay the book title (and optionally author) on the cover.
+local SHOW_TITLE  = true
+local SHOW_AUTHOR = true   -- only used when SHOW_TITLE is also true
 -- ────────────────────────────────────────────────────────────────────────────
 
 local lfs    = require("libs/libkoreader-lfs")
@@ -121,6 +125,120 @@ UIManager:scheduleIn(0, function()
         return _cached_bb
     end
 
+    -- ── Text overlay helper ───────────────────────────────────────────────
+
+    local function renderTextOnCover(bb, title, author)
+        local ok_f,  Font       = pcall(require, "ui/font")
+        local ok_r,  RenderText = pcall(require, "ui/rendertext")
+        local ok_bl, Blitbuffer = pcall(require, "ffi/blitbuffer")
+        if not (ok_f and ok_r and ok_bl) then return end
+
+        local W   = bb:getWidth()
+        local H   = bb:getHeight()
+        local pad = math.max(4, math.floor(H * 0.03))
+
+        -- Font sizes proportional to cover height
+        local t_size = math.max(12, math.min(24, math.floor(H / 8)))
+        local a_size = math.max(10, math.min(18, math.floor(H / 11)))
+        local t_face = Font:getFace("cfont", t_size)
+        local a_face = (author and SHOW_AUTHOR) and Font:getFace("cfont", a_size) or nil
+
+        local max_w = W - pad * 2
+
+        -- Word-wrap helper: splits text into lines that fit max_w.
+        -- Returns array of {text=string, w=number}. Caps at max_lines.
+        local function wrapLines(text, face, max_lines)
+            local lines  = {}
+            local words  = {}
+            for w in text:gmatch("%S+") do table.insert(words, w) end
+
+            local space_w  = RenderText:sizeUtf8Text(0, false, face, " ", false, false).x
+            local cur_text = ""
+            local cur_w    = 0
+
+            local function flush()
+                if cur_text ~= "" then
+                    table.insert(lines, { text = cur_text, w = cur_w })
+                    cur_text = ""
+                    cur_w    = 0
+                end
+            end
+
+            for _, word in ipairs(words) do
+                if #lines >= max_lines then break end
+                local word_w = RenderText:sizeUtf8Text(0, false, face, word, false, false).x
+                if word_w > max_w then
+                    flush()
+                    if #lines < max_lines then
+                        word   = RenderText:truncateTextByWidth(word, face, max_w, false, false)
+                        word_w = RenderText:sizeUtf8Text(0, false, face, word, false, false).x
+                        table.insert(lines, { text = word, w = word_w })
+                    end
+                elseif cur_text == "" then
+                    cur_text = word
+                    cur_w    = word_w
+                elseif cur_w + space_w + word_w <= max_w then
+                    cur_text = cur_text .. " " .. word
+                    cur_w    = cur_w + space_w + word_w
+                else
+                    flush()
+                    if #lines < max_lines then
+                        cur_text = word
+                        cur_w    = word_w
+                    end
+                end
+            end
+            if #lines < max_lines then flush() end
+            return lines
+        end
+
+        -- Consistent line metrics using a reference string
+        local t_ref  = RenderText:sizeUtf8Text(0, false, t_face, "Ag", false, false)
+        local t_ln_h = t_ref.y_top + t_ref.y_bottom
+        local line_gap = math.max(2, math.floor(t_size * 0.2))
+
+        local a_ref, a_ln_h
+        if a_face then
+            a_ref  = RenderText:sizeUtf8Text(0, false, a_face, "Ag", false, false)
+            a_ln_h = a_ref.y_top + a_ref.y_bottom
+        end
+
+        -- Wrap: title up to 3 lines, author up to 1 line
+        local t_lines = wrapLines(title, t_face, 3)
+        local a_lines = (a_face and #t_lines > 0)
+                        and wrapLines(author, a_face, 1) or {}
+
+        if #t_lines == 0 then return end
+
+        -- Total block height (no trailing gap after last line of each section)
+        local block_h = #t_lines * t_ln_h + (#t_lines - 1) * line_gap
+        if #a_lines > 0 then
+            block_h = block_h + pad + #a_lines * a_ln_h
+        end
+
+        -- Vertically center the block
+        local cur_y = math.max(pad, math.floor((H - block_h) / 2))
+
+        -- Render title lines
+        for i, line in ipairs(t_lines) do
+            local x = math.max(pad, math.floor((W - line.w) / 2))
+            RenderText:renderUtf8Text(bb, x, cur_y + t_ref.y_top, t_face, line.text,
+                                      false, false, Blitbuffer.COLOR_BLACK)
+            cur_y = cur_y + t_ln_h + (i < #t_lines and line_gap or 0)
+        end
+
+        -- Render author line(s) below title
+        if #a_lines > 0 then
+            cur_y = cur_y + pad
+            for i, line in ipairs(a_lines) do
+                local x = math.max(pad, math.floor((W - line.w) / 2))
+                RenderText:renderUtf8Text(bb, x, cur_y + a_ref.y_top, a_face, line.text,
+                                          false, false, Blitbuffer.COLOR_BLACK)
+                cur_y = cur_y + a_ln_h + (i < #a_lines and line_gap or 0)
+            end
+        end
+    end
+
     -- ── Monkey-patch BookInfoManager.getBookInfo ─────────────────────────
 
     local orig_getBookInfo = BookInfoManager.getBookInfo
@@ -141,7 +259,16 @@ UIManager:scheduleIn(0, function()
         then
             local cached = getCachedBB()
             if cached then
-                bookinfo.cover_bb     = cached:copy()
+                local cover_bb = cached:copy()
+                if SHOW_TITLE and bookinfo.title then
+                    local ok_txt = pcall(renderTextOnCover, cover_bb,
+                                        bookinfo.title,
+                                        SHOW_AUTHOR and bookinfo.authors or nil)
+                    if not ok_txt then
+                        logger.warn("FallbackCover patch: text overlay failed")
+                    end
+                end
+                bookinfo.cover_bb     = cover_bb
                 bookinfo.has_cover    = "Y"
                 bookinfo.cover_w      = cached:getWidth()
                 bookinfo.cover_h      = cached:getHeight()
