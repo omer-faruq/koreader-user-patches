@@ -34,6 +34,18 @@ local FALLBACK_IMAGE_PATH = nil
 -- Set to true to overlay the book title (and optionally author) on the cover.
 local SHOW_TITLE  = true
 local SHOW_AUTHOR = true   -- only used when SHOW_TITLE is also true
+
+-- Title text style
+local TITLE_COLOR    = "black"  -- "black" or "white"
+local TITLE_BOLD     = false
+local TITLE_FONT     = "cfont"  -- e.g. "cfont", "tfont", or any font name in KOReader
+local TITLE_MAX_SIZE = 24       -- maximum font size in pixels (scaled down for small covers)
+
+-- Author text style
+local AUTHOR_COLOR    = "black"  -- "black" or "white"
+local AUTHOR_BOLD     = false
+local AUTHOR_FONT     = "cfont"
+local AUTHOR_MAX_SIZE = 18       -- maximum font size in pixels
 -- ────────────────────────────────────────────────────────────────────────────
 
 local lfs    = require("libs/libkoreader-lfs")
@@ -133,26 +145,30 @@ UIManager:scheduleIn(0, function()
         local ok_bl, Blitbuffer = pcall(require, "ffi/blitbuffer")
         if not (ok_f and ok_r and ok_bl) then return end
 
+        local function toColor(name)
+            return (name == "white") and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+        end
+
         local W   = bb:getWidth()
         local H   = bb:getHeight()
         local pad = math.max(4, math.floor(H * 0.03))
 
-        -- Font sizes proportional to cover height
-        local t_size = math.max(12, math.min(24, math.floor(H / 8)))
-        local a_size = math.max(10, math.min(18, math.floor(H / 11)))
-        local t_face = Font:getFace("cfont", t_size)
-        local a_face = (author and SHOW_AUTHOR) and Font:getFace("cfont", a_size) or nil
+        -- Font sizes proportional to cover height, capped by config maximums
+        local t_size = math.max(12, math.min(TITLE_MAX_SIZE,  math.floor(H / 8)))
+        local a_size = math.max(10, math.min(AUTHOR_MAX_SIZE, math.floor(H / 11)))
+        local t_face = Font:getFace(TITLE_FONT,  t_size)
+        local a_face = (author and SHOW_AUTHOR) and Font:getFace(AUTHOR_FONT, a_size) or nil
 
         local max_w = W - pad * 2
 
         -- Word-wrap helper: splits text into lines that fit max_w.
         -- Returns array of {text=string, w=number}. Caps at max_lines.
-        local function wrapLines(text, face, max_lines)
+        local function wrapLines(text, face, max_lines, bold)
             local lines  = {}
             local words  = {}
             for w in text:gmatch("%S+") do table.insert(words, w) end
 
-            local space_w  = RenderText:sizeUtf8Text(0, false, face, " ", false, false).x
+            local space_w  = RenderText:sizeUtf8Text(0, false, face, " ", false, bold).x
             local cur_text = ""
             local cur_w    = 0
 
@@ -166,12 +182,12 @@ UIManager:scheduleIn(0, function()
 
             for _, word in ipairs(words) do
                 if #lines >= max_lines then break end
-                local word_w = RenderText:sizeUtf8Text(0, false, face, word, false, false).x
+                local word_w = RenderText:sizeUtf8Text(0, false, face, word, false, bold).x
                 if word_w > max_w then
                     flush()
                     if #lines < max_lines then
-                        word   = RenderText:truncateTextByWidth(word, face, max_w, false, false)
-                        word_w = RenderText:sizeUtf8Text(0, false, face, word, false, false).x
+                        word   = RenderText:truncateTextByWidth(word, face, max_w, false, bold)
+                        word_w = RenderText:sizeUtf8Text(0, false, face, word, false, bold).x
                         table.insert(lines, { text = word, w = word_w })
                     end
                 elseif cur_text == "" then
@@ -193,20 +209,20 @@ UIManager:scheduleIn(0, function()
         end
 
         -- Consistent line metrics using a reference string
-        local t_ref  = RenderText:sizeUtf8Text(0, false, t_face, "Ag", false, false)
+        local t_ref  = RenderText:sizeUtf8Text(0, false, t_face, "Ag", false, TITLE_BOLD)
         local t_ln_h = t_ref.y_top + t_ref.y_bottom
         local line_gap = math.max(2, math.floor(t_size * 0.2))
 
         local a_ref, a_ln_h
         if a_face then
-            a_ref  = RenderText:sizeUtf8Text(0, false, a_face, "Ag", false, false)
+            a_ref  = RenderText:sizeUtf8Text(0, false, a_face, "Ag", false, AUTHOR_BOLD)
             a_ln_h = a_ref.y_top + a_ref.y_bottom
         end
 
         -- Wrap: title up to 3 lines, author up to 1 line
-        local t_lines = wrapLines(title, t_face, 3)
+        local t_lines = wrapLines(title,  t_face, 3, TITLE_BOLD)
         local a_lines = (a_face and #t_lines > 0)
-                        and wrapLines(author, a_face, 1) or {}
+                        and wrapLines(author, a_face, 1, AUTHOR_BOLD) or {}
 
         if #t_lines == 0 then return end
 
@@ -223,7 +239,7 @@ UIManager:scheduleIn(0, function()
         for i, line in ipairs(t_lines) do
             local x = math.max(pad, math.floor((W - line.w) / 2))
             RenderText:renderUtf8Text(bb, x, cur_y + t_ref.y_top, t_face, line.text,
-                                      false, false, Blitbuffer.COLOR_BLACK)
+                                      false, TITLE_BOLD, toColor(TITLE_COLOR))
             cur_y = cur_y + t_ln_h + (i < #t_lines and line_gap or 0)
         end
 
@@ -233,7 +249,7 @@ UIManager:scheduleIn(0, function()
             for i, line in ipairs(a_lines) do
                 local x = math.max(pad, math.floor((W - line.w) / 2))
                 RenderText:renderUtf8Text(bb, x, cur_y + a_ref.y_top, a_face, line.text,
-                                          false, false, Blitbuffer.COLOR_BLACK)
+                                          false, AUTHOR_BOLD, toColor(AUTHOR_COLOR))
                 cur_y = cur_y + a_ln_h + (i < #a_lines and line_gap or 0)
             end
         end
