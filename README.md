@@ -52,6 +52,21 @@ Lists specific books or directories whose covers should be replaced with random 
 
 ---
 
+## 2-fallbackcover.lua
+Displays a chosen image as the cover for any book that has no embedded cover art, in both mosaic and list CoverBrowser modes.
+
+**Setup:**
+1. Copy `2-fallbackcover.lua` into the `koreader/patches/` folder.
+2. Place your fallback image in the same folder, named one of: `fallbackcover.jpg`, `fallbackcover.png`, `fallbackcover.bmp`, `fallbackcover.gif`, `fallbackcover.webp`.
+
+No editing required. Alternatively, open the file and set `FALLBACK_IMAGE_PATH` to an absolute path pointing to any image anywhere on the device.
+
+**Requirements:**
+- KOReader's CoverBrowser plugin must be enabled.
+- Only books that have been fully indexed (cover extraction attempted) but found to have no cover will show the fallback. Books not yet scanned will be indexed normally first.
+
+---
+
 ## 2-gesture-manager-top-bottom-edge-vertical-swipes.lua
 Adds two new configurable Gesture Manager entries for one-finger vertical edge swipes:
 - `Top edge down`
