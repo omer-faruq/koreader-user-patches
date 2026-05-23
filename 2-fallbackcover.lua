@@ -31,6 +31,11 @@ Version: 1.0.0
 -- Or set an explicit path, e.g. "/mnt/onboard/covers/default.jpg"
 local FALLBACK_IMAGE_PATH = nil
 
+-- Set to a folder path to pick a random image per book instead of a single file.
+-- e.g. "/mnt/onboard/fallback_covers"  (overrides FALLBACK_IMAGE_PATH when set)
+-- Each book is assigned a consistent image (same book → same image across sessions).
+local FALLBACK_IMAGE_FOLDER = nil
+
 -- Set to true to overlay the book title (and optionally author) on the cover.
 local SHOW_TITLE  = true
 local SHOW_AUTHOR = true   -- only used when SHOW_TITLE is also true
@@ -84,8 +89,22 @@ local function findFallbackImage()
     return nil
 end
 
-local image_path = findFallbackImage()
-if not image_path then
+local image_path = nil
+local _use_folder = false
+
+if FALLBACK_IMAGE_FOLDER then
+    if lfs.attributes(FALLBACK_IMAGE_FOLDER, "mode") == "directory" then
+        _use_folder = true
+    else
+        logger.warn("FallbackCover patch: folder not found:", FALLBACK_IMAGE_FOLDER)
+    end
+end
+
+if not _use_folder then
+    image_path = findFallbackImage()
+end
+
+if not _use_folder and not image_path then
     return  -- nothing to do
 end
 
@@ -109,8 +128,9 @@ UIManager:scheduleIn(0, function()
 
     -- ── Cache helpers ────────────────────────────────────────────────────
 
-    local _cached_bb      = nil   -- loaded blitbuffer
-    local _cached_bb_path = nil   -- path it was loaded from
+    -- Single-file mode: cache one blitbuffer for the session
+    local _cached_bb      = nil
+    local _cached_bb_path = nil
 
     local function getCachedBB()
         if _cached_bb_path == image_path then
@@ -135,6 +155,70 @@ UIManager:scheduleIn(0, function()
         end
 
         return _cached_bb
+    end
+
+    -- Folder mode: cache file list + one blitbuffer per image path
+    local _folder_file_list = nil   -- cached sorted list of image paths
+    local _folder_bb_cache  = {}    -- path → blitbuffer (or false on failure)
+
+    local function getFolderFileList()
+        if _folder_file_list ~= nil then return _folder_file_list end
+        local supported = { jpg=true, jpeg=true, png=true, bmp=true, gif=true, webp=true }
+        local list = {}
+        -- lfs.dir raises on failure; guard with lfs.attributes first
+        if lfs.attributes(FALLBACK_IMAGE_FOLDER, "mode") == "directory" then
+            for entry in lfs.dir(FALLBACK_IMAGE_FOLDER) do
+                if entry ~= "." and entry ~= ".." then
+                    local ext = entry:match("%.(%w+)$")
+                    if ext and supported[ext:lower()] then
+                        table.insert(list, FALLBACK_IMAGE_FOLDER .. "/" .. entry)
+                    end
+                end
+            end
+        end
+        table.sort(list)  -- sort for determinism
+        _folder_file_list = list
+        if #list == 0 then
+            logger.warn("FallbackCover patch: no images found in", FALLBACK_IMAGE_FOLDER)
+        else
+            logger.info("FallbackCover patch: found", #list, "images in", FALLBACK_IMAGE_FOLDER)
+        end
+        return _folder_file_list
+    end
+
+    local function getBBForBook(filepath)
+        local list = getFolderFileList()
+        if #list == 0 then return nil end
+
+        -- Deterministic hash: same book filepath → same image every session
+        local hash = 0
+        for i = 1, #filepath do
+            hash = (hash * 31 + string.byte(filepath, i)) % 1000003
+        end
+        local chosen = list[(hash % #list) + 1]
+
+        -- Lazy-load and cache per image path
+        if _folder_bb_cache[chosen] == nil then
+            local RenderImage = require("ui/renderimage")
+            local ok2, bb = pcall(RenderImage.renderImageFile, RenderImage, chosen, false)
+            _folder_bb_cache[chosen] = (ok2 and bb) and bb or false
+            if ok2 and bb then
+                logger.info("FallbackCover patch: loaded", chosen)
+            else
+                logger.warn("FallbackCover patch: failed to load", chosen)
+            end
+        end
+
+        return _folder_bb_cache[chosen] or nil
+    end
+
+    -- Unified entry point
+    local function getFallbackBB(filepath)
+        if _use_folder then
+            return getBBForBook(filepath)
+        else
+            return getCachedBB()
+        end
     end
 
     -- ── Text overlay helper ───────────────────────────────────────────────
@@ -273,7 +357,11 @@ UIManager:scheduleIn(0, function()
             and not bookinfo.has_cover
             and not bookinfo.ignore_cover
         then
-            local cached = getCachedBB()
+            local ok_fb, cached = pcall(getFallbackBB, filepath)
+            if not ok_fb then
+                logger.warn("FallbackCover patch: getFallbackBB failed:", cached)
+                cached = nil
+            end
             if cached then
                 local cover_bb = cached:copy()
                 if SHOW_TITLE and bookinfo.title then
