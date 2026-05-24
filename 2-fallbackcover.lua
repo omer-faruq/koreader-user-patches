@@ -53,6 +53,21 @@ local AUTHOR_BOLD     = false
 local AUTHOR_FONT     = "cfont"
 local AUTHOR_MIN_SIZE = 10       -- minimum font size
 local AUTHOR_MAX_SIZE = 18       -- maximum font size in pixels
+
+-- Comma-separated list of path prefixes to restrict fallback covers to.
+-- When set, fallback is applied ONLY to books whose filepath starts with one
+-- of these prefixes. Leave empty ("") to apply to all books.
+-- e.g. "/mnt/onboard/books,/mnt/onboard/My Documents"
+local APPLY_ONLY_TO = ""
+
+-- Comma-separated list of path substrings to exclude from fallback covers.
+-- If a book's filepath contains any of these strings, the fallback is skipped.
+-- e.g. "/mnt/onboard/RSS,instapaper,cache"
+local EXCLUDE_PATHS = ""
+
+-- When a book has no title metadata, use the filename (without extension) as
+-- the title, replacing hyphens and underscores with spaces.
+local USE_FILENAME_AS_TITLE = true
 -- ────────────────────────────────────────────────────────────────────────────
 
 local lfs    = require("libs/libkoreader-lfs")
@@ -366,6 +381,38 @@ UIManager:scheduleIn(0, function()
         end
     end
 
+    -- ── Build path filters ──────────────────────────────────────────────────
+
+    local function parseCSV(str)
+        local t = {}
+        if str and str ~= "" then
+            for segment in str:gmatch("[^,]+") do
+                segment = segment:match("^%s*(.-)%s*$")  -- trim whitespace
+                if segment ~= "" then table.insert(t, segment) end
+            end
+        end
+        return t
+    end
+
+    local _include_list = parseCSV(APPLY_ONLY_TO)
+    local _exclude_list = parseCSV(EXCLUDE_PATHS)
+
+    local function isAllowed(filepath)
+        -- Inclusion check: if APPLY_ONLY_TO is set, filepath must start with one prefix
+        if #_include_list > 0 then
+            local ok = false
+            for _, prefix in ipairs(_include_list) do
+                if filepath:sub(1, #prefix) == prefix then ok = true; break end
+            end
+            if not ok then return false end
+        end
+        -- Exclusion check: filepath must not contain any excluded substring
+        for _, seg in ipairs(_exclude_list) do
+            if filepath:find(seg, 1, true) then return false end
+        end
+        return true
+    end
+
     -- ── Monkey-patch BookInfoManager.getBookInfo ─────────────────────────
 
     local orig_getBookInfo = BookInfoManager.getBookInfo
@@ -378,11 +425,13 @@ UIManager:scheduleIn(0, function()
         --   • book was fully indexed  (cover_fetched is set)
         --   • book has no embedded cover  (has_cover is nil/false)
         --   • user has not suppressed the cover  (ignore_cover is nil/false)
+        --   • filepath passes APPLY_ONLY_TO and EXCLUDE_PATHS filters
         if bookinfo
             and get_cover
             and bookinfo.cover_fetched
             and not bookinfo.has_cover
             and not bookinfo.ignore_cover
+            and isAllowed(filepath)
         then
             local ok_fb, cached = pcall(getFallbackBB, filepath)
             if not ok_fb then
@@ -390,10 +439,17 @@ UIManager:scheduleIn(0, function()
                 cached = nil
             end
             if cached then
+                -- Determine display title: metadata title, or filename as fallback
+                local display_title = bookinfo.title
+                if not display_title and USE_FILENAME_AS_TITLE then
+                    local fname = filepath:match("([^/]+)$") or ""
+                    fname = fname:match("^(.+)%.[^%.]+$") or fname  -- strip extension
+                    display_title = fname:gsub("[-_]", " ")
+                end
                 local cover_bb = cached:copy()
-                if SHOW_TITLE and bookinfo.title then
+                if SHOW_TITLE and display_title and display_title ~= "" then
                     local ok_txt = pcall(renderTextOnCover, cover_bb,
-                                        bookinfo.title,
+                                        display_title,
                                         SHOW_AUTHOR and bookinfo.authors or nil)
                     if not ok_txt then
                         logger.warn("FallbackCover patch: text overlay failed")
