@@ -79,10 +79,17 @@ No editing required. Alternatively, open the file and set `FALLBACK_IMAGE_PATH` 
 
 **Configuration (top of the file):**
 - `FALLBACK_IMAGE_PATH` — leave as `nil` for auto-detect, or set an absolute path to any image.
+- `FALLBACK_IMAGE_FOLDER` — set to a folder path to pick a random image per book instead of a single file (e.g., "/mnt/onboard/fallback_covers"). Each book gets a consistent random image across sessions. **This overrides `FALLBACK_IMAGE_PATH` when set.**
 - `SHOW_TITLE` — set to `true` to overlay the book title on the fallback cover, `false` to disable.
 - `SHOW_AUTHOR` — set to `true` to also show the author below the title (only used when `SHOW_TITLE` is `true`).
+- `TITLE_FONT` / `AUTHOR_FONT` — if you want to use a font that has more than one ttf file (for bold, italic, regular, etc), make the font name match the name of the specific one you want to use, minus the file extension (ex: "Lexend-Regular").
+- `TITLE_COLOR` / `AUTHOR_COLOR` — text color, either "black" or "white".
+- `TITLE_BOLD` / `AUTHOR_BOLD` — set to `true` for bold text, `false` for regular weight.
+- `TITLE_MIN_SIZE` / `TITLE_MAX_SIZE` — minimum and maximum font sizes in pixels for title text (scales with cover height).
+- `APPLY_ONLY_TO` — comma-separated list of path prefixes to restrict fallback covers to specific folders (e.g., "/mnt/onboard/books,/mnt/onboard/My Documents"). Leave empty to apply to all books.
+- `EXCLUDE_PATHS` — comma-separated list of path substrings to exclude from fallback covers (e.g., "/mnt/onboard/RSS,instapaper,cache").
 
-The title and author text is word-wrapped (up to 3 lines for title, 1 line for author), centered horizontally and vertically on the image, rendered in black directly on the image without any background. Font size scales with cover height.
+The title and author text is word-wrapped (up to 3 lines for title, 1 line for author), centered horizontally and vertically on the image, rendered in black or white directly on the image without any background. Font size scales with cover height.
 
 **Requirements:**
 - KOReader's CoverBrowser plugin must be enabled.
