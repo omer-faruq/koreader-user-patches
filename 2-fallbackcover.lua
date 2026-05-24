@@ -42,14 +42,16 @@ local SHOW_AUTHOR = true   -- only used when SHOW_TITLE is also true
 
 -- Title text style
 local TITLE_COLOR    = "black"  -- "black" or "white"
-local TITLE_BOLD     = false
+local TITLE_BOLD     = true
 local TITLE_FONT     = "cfont"  -- e.g. "cfont", "tfont", or any font name in KOReader
+local TITLE_MIN_SIZE = 12       -- minimum font size; text is truncated with ... below this
 local TITLE_MAX_SIZE = 24       -- maximum font size in pixels (scaled down for small covers)
 
 -- Author text style
 local AUTHOR_COLOR    = "black"  -- "black" or "white"
 local AUTHOR_BOLD     = false
 local AUTHOR_FONT     = "cfont"
+local AUTHOR_MIN_SIZE = 10       -- minimum font size
 local AUTHOR_MAX_SIZE = 18       -- maximum font size in pixels
 -- ────────────────────────────────────────────────────────────────────────────
 
@@ -236,14 +238,39 @@ UIManager:scheduleIn(0, function()
         local W   = bb:getWidth()
         local H   = bb:getHeight()
         local pad = math.max(4, math.floor(H * 0.03))
+        local max_w = W - pad * 2
 
-        -- Font sizes proportional to cover height, capped by config maximums
-        local t_size = math.max(12, math.min(TITLE_MAX_SIZE,  math.floor(H / 8)))
-        local a_size = math.max(10, math.min(AUTHOR_MAX_SIZE, math.floor(H / 11)))
+        -- Initial font sizes: proportional to cover height, capped by config
+        local t_size = math.max(TITLE_MIN_SIZE,  math.min(TITLE_MAX_SIZE,  math.floor(H / 8)))
+        local a_size = math.max(AUTHOR_MIN_SIZE, math.min(AUTHOR_MAX_SIZE, math.floor(H / 11)))
+
+        -- Shrink-to-fit: find the widest word at current size; if it overflows,
+        -- decrease size one step at a time until it fits or MIN_SIZE is reached.
+        local function shrinkToFit(text, font_name, size, min_size, bold)
+            local face_cur  = Font:getFace(font_name, size)
+            local widest_w  = 0
+            local widest_wd = ""
+            for w in text:gmatch("%S+") do
+                local ww = RenderText:sizeUtf8Text(0, false, face_cur, w, false, bold).x
+                if ww > widest_w then widest_w = ww ; widest_wd = w end
+            end
+            if widest_w <= max_w then return size end  -- already fits, no shrink needed
+            while size > min_size do
+                size = size - 1
+                local ww = RenderText:sizeUtf8Text(
+                    0, false, Font:getFace(font_name, size), widest_wd, false, bold).x
+                if ww <= max_w then break end
+            end
+            return size
+        end
+
+        t_size = shrinkToFit(title, TITLE_FONT, t_size, TITLE_MIN_SIZE, TITLE_BOLD)
+        if author and SHOW_AUTHOR then
+            a_size = shrinkToFit(author, AUTHOR_FONT, a_size, AUTHOR_MIN_SIZE, AUTHOR_BOLD)
+        end
+
         local t_face = Font:getFace(TITLE_FONT,  t_size)
         local a_face = (author and SHOW_AUTHOR) and Font:getFace(AUTHOR_FONT, a_size) or nil
-
-        local max_w = W - pad * 2
 
         -- Word-wrap helper: splits text into lines that fit max_w.
         -- Returns array of {text=string, w=number}. Caps at max_lines.
