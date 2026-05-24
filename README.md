@@ -27,6 +27,22 @@ Displays reading progress in a visual "receipt" format showing book/chapter prog
 
 ---
 
+## 2-coverbrowser-list-stretched.lua
+Stretches book covers in CoverBrowser list mode to a uniform 2:3 portrait aspect ratio, eliminating layout shifts. Also fixes visual corruption in SimpleUI's folder covers feature during navigation.
+
+**Features:**
+- **Uniform cover dimensions**: All covers are stretched to a consistent 2:3 (width/height) portrait slot, regardless of original aspect ratio
+- **Fixes SimpleUI folder cover corruption**: Prevents memory corruption that caused visual artifacts when navigating back to cached folder covers (folder covers are a SimpleUI-specific feature, not part of default CoverBrowser)
+- **No configuration needed**: Automatically patches both CoverBrowser and SimpleUI plugins when loaded
+
+**Requirements:**
+- KOReader's CoverBrowser plugin must be enabled
+- For folder cover fixes: SimpleUI plugin must also be enabled
+
+**Reference:** `2-CoverBrowserMosaicStretched.lua.txt` (based on KOReader PR #11838: https://github.com/koreader/koreader/pull/11838).
+
+---
+
 ## 2-dual-state-screensaver-mode.lua
 Adds a new screensaver type, **Dual-state screensaver mode**, which lets you use different screensavers depending on where you are:
 - **Book list mode** (File Manager / library)
