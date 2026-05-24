@@ -130,16 +130,29 @@ end
 -- FileManager initialises and loads plugins (including CoverBrowser).
 -- Scheduling with delay=0 pushes the actual patching to the first event-loop
 -- tick, by which time all plugins and bookinfomanager are in package.loaded.
+-- If bookinfomanager is still not available (non-standard installs / slow
+-- plugin init), the patch retries up to MAX_RETRIES times with RETRY_DELAY
+-- seconds between attempts before giving up.
 
-local UIManager = require("ui/uimanager")
+local UIManager   = require("ui/uimanager")
+local MAX_RETRIES = 5
+local RETRY_DELAY = 2  -- seconds between retries
 
-UIManager:scheduleIn(0, function()
+local function applyPatch(attempt)
 
-    -- ── Load BookInfoManager ─────────────────────────────────────────────
+    -- ── Load BookInfoManager (with retry on failure) ────────────────────────
 
     local ok, BookInfoManager = pcall(require, "bookinfomanager")
     if not ok or not BookInfoManager then
-        logger.warn("FallbackCover patch: CoverBrowser not available:", BookInfoManager)
+        if attempt < MAX_RETRIES then
+            logger.warn(string.format(
+                "FallbackCover patch: CoverBrowser not available yet, retry %d/%d in %ds",
+                attempt, MAX_RETRIES, RETRY_DELAY))
+            UIManager:scheduleIn(RETRY_DELAY, function() applyPatch(attempt + 1) end)
+        else
+            logger.warn("FallbackCover patch: CoverBrowser not available after",
+                        MAX_RETRIES, "attempts, giving up:", BookInfoManager)
+        end
         return
     end
 
@@ -467,4 +480,6 @@ UIManager:scheduleIn(0, function()
     end
 
     logger.info("FallbackCover patch: BookInfoManager.getBookInfo patched, using", image_path)
-end)
+end
+
+UIManager:scheduleIn(0, function() applyPatch(1) end)
