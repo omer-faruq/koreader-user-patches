@@ -172,6 +172,23 @@ Shows the folder's direct file count and, when different, the total number of fi
 
 ---
 
+## 2-screensaver-always-full-refresh.lua
+Forces a full e-ink refresh (white flash + `refreshFull`) right before the screensaver/sleep screen appears, no matter which screensaver type is active, and adds a "Full refresh count" item to the bottom of the sleep screen settings to control how many times this happens.
+
+Stock KOReader only flashes/refreshes the screen first for the `cover` and `random_image` screensaver types. Other types — `message`, `disable` with an overlay, or custom screensavers added by plugins/patches (e.g. book receipt, SimpleUI home screen, sleep overlay) — draw directly on top of whatever was on screen, which can leave ghosting on eInk displays. This patch hooks `Screensaver:setup()` (which always runs immediately before `show()`, for every screensaver type, with no bypass branches) so the full-refresh flash always runs first, regardless of screensaver type.
+
+**Where to configure:**
+- Open KOReader settings for wallpaper/screensaver type.
+- At the bottom of the menu, tap `Full refresh count before sleep screen` to set how many consecutive refresh passes to perform:
+  - `0` — disabled, patch does nothing.
+  - `1` — one refresh pass (default).
+  - `2`–`5` — that many consecutive passes (more aggressive ghosting removal at the cost of extra time/flashing).
+
+**Requirements:**
+- Only does anything on devices with an e-ink screen (`Device:hasEinkScreen()`).
+
+---
+
 ## 2-sleep-overlay.lua
 Adds two sleep screen styles:
 - **Overlay mode** covers the full screen with a randomly chosen PNG from `sleepoverlays` folder (samples: https://imgur.com/a/VdqtgvM).
