@@ -751,15 +751,6 @@ local function composeOverlay(self)
     self._sleep_overlay_applied = true
 end
 
-local orig_show = Screensaver.show
-function Screensaver:show(...)
-    local ok, err = pcall(composeOverlay, self)
-    if not ok then
-        logger.err("SleepOverlay: compose failed", err)
-    end
-    return orig_show(self, ...)
-end
-
 local orig_cleanup = Screensaver.cleanup
 function Screensaver:cleanup()
     if self._sleep_overlay_widget and self._sleep_overlay_widget.free then
