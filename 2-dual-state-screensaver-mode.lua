@@ -1,5 +1,7 @@
 -- To use "Book mode screensavers", you must create the "book_mode_screensavers" folder and put your images inside it.
 -- To use "Book list screensavers", you must create the "book_list_screensavers" folder and put your images inside it.
+-- Wallpaper modes contributed by plugins or other patches (Book Card, Reading insights,
+-- Book receipt, ...) are picked up automatically and can be used for either state.
 
 local ffiUtil = require("ffi/util")
 local lfs = require("libs/libkoreader-lfs")
@@ -25,6 +27,29 @@ local SETTINGS_KEY_BOOK_MODE = "dual_state_book_mode_choice"
 local SETTINGS_KEY_BOOK_LIST_PLACEMENT = "dual_state_book_list_placement"
 local SETTINGS_KEY_BOOK_MODE_PLACEMENT = "dual_state_book_mode_placement"
 
+-- Wallpaper types core's own screensaver.lua resolves and draws by itself.
+-- Everything else in that radio group comes from a plugin or another patch
+-- (Book Card, Reading insights, Book receipt, ...) which hooks Screensaver
+-- on its own - see the setup() wrapper below for how those are dispatched.
+local CORE_SCREENSAVER_TYPES = {
+    cover = true,
+    document_cover = true,
+    random_image = true,
+    image_file = true,
+    readingprogress = true,
+    bookstatus = true,
+    disable = true,
+}
+
+-- Some third-party modes don't read their type during setup()/show() but
+-- later, off G_reader_settings, while the device is already asleep (Reading
+-- insights does that from its own onSuspend handler). For those the
+-- overridden screensaver_type has to stay in place for the whole sleep and
+-- is put back on wake (Screensaver:cleanup) instead of right after setup().
+-- This key remembers what to put back, so a session that dies while asleep
+-- still comes back with "Dual-state screensaver mode" selected.
+local SETTINGS_KEY_PENDING_RESTORE = "dual_state_pending_restore"
+
 local function safeText(item)
     if item.text then
         return item.text
@@ -36,6 +61,37 @@ local function safeText(item)
         end
     end
     return nil
+end
+
+-- Entries added by plugins hardcode their type inside the callback instead
+-- of capturing it as a setting/value pair, so there is nothing to read off
+-- the closure. Running the callback with G_reader_settings' writers swapped
+-- for recording stubs reveals the type without saving anything: the stubs
+-- are in place for that single synchronous call only.
+local function probeScreensaverType(callback)
+    local captured
+
+    local own_save = rawget(G_reader_settings, "saveSetting")
+    local own_del = rawget(G_reader_settings, "delSetting")
+
+    G_reader_settings.saveSetting = function(store, key, value)
+        if captured == nil and key == "screensaver_type" and type(value) == "string" then
+            captured = value
+        end
+        return store
+    end
+    G_reader_settings.delSetting = function(store)
+        return store
+    end
+
+    pcall(callback)
+
+    -- nil restores the inherited LuaSettings methods (these were shadowed
+    -- on the instance, not replaced on the class).
+    G_reader_settings.saveSetting = own_save
+    G_reader_settings.delSetting = own_del
+
+    return captured
 end
 
 local function extractRadioValue(item)
@@ -63,11 +119,16 @@ local function extractRadioValue(item)
         i = i + 1
     end
 
-    if setting == "screensaver_type" and type(value) == "string" then
-        return value
+    if setting ~= nil then
+        -- A core genMenuItem() entry: its closure says which setting it
+        -- writes, so entries for other settings are skipped here.
+        if setting == "screensaver_type" and type(value) == "string" then
+            return value
+        end
+        return nil
     end
 
-    return nil
+    return probeScreensaverType(item.callback)
 end
 
 local function folderExists(path)
@@ -321,6 +382,29 @@ local function restoreSetting(key, existed, value)
     end
 end
 
+-- Remember a screensaver_type override that has to survive the sleep, and
+-- put it back on wake. Both the in-memory copy and the persisted one are
+-- kept: the first is what normally restores, the second is what a session
+-- that died mid-sleep restores from on its next start.
+local pending_restore
+
+local function setPendingRestore(key, existed, value)
+    pending_restore = { key = key, existed = existed, value = value }
+    G_reader_settings:saveSetting(SETTINGS_KEY_PENDING_RESTORE, pending_restore)
+end
+
+local function restorePendingOverride()
+    local pending = pending_restore or G_reader_settings:readSetting(SETTINGS_KEY_PENDING_RESTORE)
+    pending_restore = nil
+    G_reader_settings:delSetting(SETTINGS_KEY_PENDING_RESTORE)
+    if type(pending) == "table" and type(pending.key) == "string" then
+        restoreSetting(pending.key, pending.existed, pending.value)
+    end
+end
+
+-- A leftover from a previous session that never woke up properly.
+restorePendingOverride()
+
 local function getPlacementForContext(context)
     if context == "book_mode" then
         return G_reader_settings:readSetting(SETTINGS_KEY_BOOK_MODE_PLACEMENT) or "stretch"
@@ -333,6 +417,9 @@ Screensaver.setup = function(self, event, event_message)
     if self._dual_state_dispatching then
         return orig_setup(self, event, event_message)
     end
+
+    -- Anything left over from a sleep this session never came back from.
+    restorePendingOverride()
 
     local prefix = event and (event .. "_") or ""
 
@@ -383,13 +470,32 @@ Screensaver.setup = function(self, event, event_message)
         G_reader_settings:saveSetting(dir_key, effective_dir)
     end
 
+    -- Dispatch through the *top* of the chain so wrappers installed above
+    -- this patch (plugins hook Screensaver later than patches do) get to see
+    -- their own type; the flag above makes this wrapper a pass-through for
+    -- that inner call.
     local top_setup = Screensaver.setup
     self._dual_state_dispatching = true
     local ok, err = pcall(top_setup, self, event, event_message)
     self._dual_state_dispatching = nil
 
-    restoreSetting(type_key, type_existed, type_old)
     restoreSetting(dir_key, dir_existed, dir_old)
+
+    -- A plugin mode that setup() left unresolved (Book Card swaps in
+    -- "bookstatus", Reading insights lets core resolve "disable" and draws
+    -- from its own onSuspend) may still check screensaver_type later, once
+    -- the device is asleep. Restoring now would hide the choice from it, so
+    -- the override is held until wake instead. Modes that are simply carried
+    -- in Screensaver.screensaver_type (Book receipt) need nothing held.
+    local hold_override = ok
+        and not CORE_SCREENSAVER_TYPES[effective_type]
+        and self.screensaver_type ~= effective_type
+
+    if hold_override then
+        setPendingRestore(type_key, type_existed, type_old)
+    else
+        restoreSetting(type_key, type_existed, type_old)
+    end
 
     if not ok then
         error(err)
@@ -466,5 +572,6 @@ local orig_cleanup = Screensaver.cleanup
 Screensaver.cleanup = function(self, ...)
     self._dual_state_effective_dir = nil
     self._dual_state_placement = nil
+    restorePendingOverride()
     return orig_cleanup(self, ...)
 end
