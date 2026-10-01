@@ -11,16 +11,28 @@
 --                                 path contains one is skipped and the reading
 --                                 history is walked backwards for the first
 --                                 book that is not excluded
---         - Quality               columns per line: Auto (default; fixed glyph size,
---                                 columns follow the screen width) / Low 60 / Normal 80 /
---                                 High 120 / Very high 160 / Ultra 200 / custom (40–240)
+--         - Style                 presets writing several of the options below at
+--                                 once: picture (fine grid, default values) /
+--                                 classic ASCII (100 cols, detailed ramp, visible
+--                                 characters)
+--         - Quality               columns per line: Auto (fixed glyph size, columns
+--                                 follow the screen width) / Low 60 / Normal 80 /
+--                                 High 120 / Very high 160 / Ultra 200 (default) /
+--                                 custom (40–240)
 --         - Character set         simple (12) / detailed (70) / block shading;
 --                                 on-device engine only
+--         - Glyph size            8/10/12/14 pt for the Auto quality (default 10)
+--         - Ink                   anti-aliased / solid (default) / heavy — glyph
+--                                 bitmaps are thresholded to pure black so thin
+--                                 strokes do not fade to gray on e-ink
+--         - Tight rows            80 % row pitch, removes striping between rows (default on)
+--         - White on black        inverted page: black paper, white glyphs, ramp
+--                                 reversed; on-device engine only
 --         - Bold glyphs           synthetic bold strokes (default on)
---         - Tone                  normal / darker / darkest gamma on luminance;
---                                 on-device engine only
+--         - Tone                  normal / darker / darkest (default) gamma on
+--                                 luminance; on-device engine only
 --         - Cover placement       fit (keep aspect, margins) / fill (keep
---                                 aspect, crop overflow) / stretch
+--                                 aspect, crop overflow) / stretch (default)
 --         - Convert on device     offline luminance ramp, no network, no key (default)
 --         - Convert with API League
 --                                 https://apileague.com Image-to-ASCII API.
@@ -34,8 +46,10 @@
 -- BEHAVIOUR
 --   • In the file browser the last opened book is used.
 --   • Results are cached as text under <datadir>/cache/ascii_covers/ keyed by
---     the book's partial MD5, the engine, placement and character grid, so a cover is
---     converted once per screen/column setting.
+--     the book's partial MD5, the engine, placement, character set/tone/inversion
+--     and character grid, so a cover is converted once per setting combination.
+--   • Glyphs are drawn one by one at fixed cell positions (not as a text run),
+--     so every row aligns exactly whatever the glyphs' own advances are.
 --   • The API engine never touches the network at suspend time. It converts
 --     when a book is opened (if WiFi is already connected) or via "Convert
 --     current cover now". If no cached API result exists at suspend time the
@@ -70,7 +84,7 @@ local KEY_ENGINE      = "ascii_cover_engine"      -- "local" | "apileague"
 local KEY_API_KEY     = "ascii_cover_api_key"
 local KEY_FIT         = "ascii_cover_fit"         -- "fit" | "fill" | "stretch"
 
-local DEFAULT_COLUMNS = 80  -- starting value of the custom spinner; quality defaults to "auto"
+local DEFAULT_COLUMNS = 200 -- "Ultra": at this density the glyphs act as a dither pattern
 local MIN_COLUMNS, MAX_COLUMNS = 40, 240
 -- Quality presets: label → columns. More columns = finer detail, smaller glyphs.
 local QUALITY_PRESETS = {
@@ -86,7 +100,21 @@ local CACHE_DIR       = DataStorage:getDataDir() .. "/cache/ascii_covers"
 
 -- "auto" quality: glyph size stays fixed (in scaled points) and the column
 -- count follows the screen width, so bigger/denser screens get more cells.
-local AUTO_FONT_SIZE = 9
+local KEY_GLYPH_SIZE     = "ascii_cover_glyph_size"
+local GLYPH_SIZES        = { 8, 10, 12, 14 }
+local DEFAULT_GLYPH_SIZE = 10
+
+-- Ink: how glyph bitmaps are put on the page.
+--   aa     anti-aliased, as FreeType renders them (thin strokes fade to gray on e-ink)
+--   solid  coverage >= 50 % becomes pure black, the rest white
+--   heavy  coverage >= 25 % becomes black, plus a 1 px horizontal dilation
+local KEY_INK       = "ascii_cover_ink"
+local INK_THRESHOLD = { solid = 128, heavy = 64 }
+-- White glyphs on a black page. The ramp is reversed so bright cover areas
+-- get dense glyphs; dark areas stay black paper. On-device engine only.
+local KEY_INVERT    = "ascii_cover_invert"
+local KEY_TIGHT     = "ascii_cover_tight_rows"
+local TIGHT_ROW_FACTOR = 0.8
 
 -- Character ramps, darkest → lightest. Paper is white, so dark pixels get
 -- dense glyphs. Lookup cost is identical whatever the ramp length.
@@ -115,8 +143,7 @@ local BLOCKS_FONT = "JetBrainsMono-Regular.ttf"
 -- ---------------------------------------------------------------------------
 -- Unset → auto (default).
 local function isAutoColumns()
-    local v = G_reader_settings:readSetting(KEY_COLUMNS)
-    return v == nil or v == "auto"
+    return G_reader_settings:readSetting(KEY_COLUMNS) == "auto"
 end
 
 local function clampColumns(c)
@@ -145,10 +172,73 @@ local function isBold()
     return G_reader_settings:nilOrTrue(KEY_BOLD)
 end
 
+local function getAutoFontSize()
+    local s = tonumber(G_reader_settings:readSetting(KEY_GLYPH_SIZE)) or DEFAULT_GLYPH_SIZE
+    if s < 4 then s = 4 end
+    if s > 40 then s = 40 end
+    return s
+end
+
+local function getInk()
+    local i = G_reader_settings:readSetting(KEY_INK)
+    if i == "aa" or INK_THRESHOLD[i] then return i end
+    return "solid"
+end
+
+local function isInverted()
+    return G_reader_settings:isTrue(KEY_INVERT)
+end
+
 local function getTone()
     local t = G_reader_settings:readSetting(KEY_TONE)
     if TONE_GAMMA[t] then return t end
-    return "normal"
+    return "darkest"
+end
+
+-- Tight rows: row pitch is 80 % of the font's line height, so the blank band
+-- between glyph rows (visible as horizontal striping) mostly disappears.
+local function isTightRows()
+    return G_reader_settings:nilOrTrue(KEY_TIGHT)
+end
+
+-- Style presets write several settings at once.
+--   picture  dense grid: the glyphs act as a dither pattern, cover detail and
+--            title text survive, individual characters are not meant to be read
+--   classic  coarse grid with letters/symbols visible as characters, like
+--            terminal ASCII art; works best for bold, high-contrast covers
+local STYLE_PRESETS = {
+    picture = { [KEY_COLUMNS] = 200, [KEY_CHARSET] = "simple",   [KEY_INK] = "solid",
+                [KEY_BOLD] = true,  [KEY_TONE] = "darkest",     [KEY_TIGHT] = true },
+    classic = { [KEY_COLUMNS] = 100, [KEY_CHARSET] = "detailed", [KEY_INK] = "solid",
+                [KEY_BOLD] = true,  [KEY_TONE] = "darker",      [KEY_TIGHT] = false },
+}
+
+local function applyStylePreset(name)
+    local p = STYLE_PRESETS[name]
+    if not p then return end
+    for k, v in pairs(p) do
+        G_reader_settings:saveSetting(k, v)
+    end
+end
+
+local function matchesStylePreset(name)
+    local p = STYLE_PRESETS[name]
+    if not p then return false end
+    for k, v in pairs(p) do
+        local cur = G_reader_settings:readSetting(k)
+        if cur == nil then
+            -- unset → compare against the built-in default
+            if k == KEY_COLUMNS then cur = DEFAULT_COLUMNS
+            elseif k == KEY_CHARSET then cur = "simple"
+            elseif k == KEY_INK then cur = "solid"
+            elseif k == KEY_BOLD then cur = true
+            elseif k == KEY_TONE then cur = "darkest"
+            elseif k == KEY_TIGHT then cur = true
+            end
+        end
+        if cur ~= v then return false end
+    end
+    return true
 end
 
 local function getEngine()
@@ -159,8 +249,8 @@ end
 
 local function getFitMode()
     local f = G_reader_settings:readSetting(KEY_FIT)
-    if f == "fill" or f == "stretch" then return f end
-    return "fit"
+    if f == "fill" or f == "fit" then return f end
+    return "stretch"
 end
 
 local function getApiKey()
@@ -268,10 +358,10 @@ local function getMonoFace(size)
     return Font:getFace("infont", size)
 end
 
--- "auto" quality: how many AUTO_FONT_SIZE glyphs fit across the screen.
+-- "auto" quality: how many glyphs of the chosen size fit across the screen.
 autoColumns = function()
     local screen_w = getPortraitScreenSize()
-    local face = getMonoFace(AUTO_FONT_SIZE)
+    local face = getMonoFace(getAutoFontSize())
     return math.floor(screen_w / measureCell(face, screen_w, isBold()))
 end
 
@@ -283,7 +373,7 @@ local function getMetrics()
     local bold = isBold()
     local size, face, cell_w
     if isAutoColumns() then
-        size = AUTO_FONT_SIZE
+        size = getAutoFontSize()
         face = getMonoFace(size)
         cell_w = measureCell(face, screen_w, bold)
     else
@@ -299,13 +389,15 @@ local function getMetrics()
         end
     end
     local face_h, ascender = face.ftsize:getHeightAndAscender()
+    if isTightRows() then face_h = face_h * TIGHT_ROW_FACTOR end
     local cell_h = math.max(1, math.ceil(face_h))
     local rows = math.max(1, math.floor(screen_h / cell_h))
 
     return {
         screen_w = screen_w, screen_h = screen_h,
         cols = cols, rows = rows,
-        face = face, font_size = size, bold = bold, cell_w = cell_w, cell_h = cell_h,
+        face = face, font_size = size, bold = bold, ink = getInk(),
+        cell_w = cell_w, cell_h = cell_h,
         baseline = math.floor(ascender),
     }
 end
@@ -356,7 +448,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Engines: BlitBuffer → array of text lines (used_cols × used_rows)
 -- ---------------------------------------------------------------------------
-local function asciiLocal(cover_bb, cols, rows, charset, gamma)
+local function asciiLocal(cover_bb, cols, rows, charset, gamma, invert)
     local small = RenderImage:scaleBlitBuffer(cover_bb, cols, rows, false)
     local ramp = RAMPS[charset] or RAMPS.simple
     local n = #ramp
@@ -367,6 +459,7 @@ local function asciiLocal(cover_bb, cols, rows, charset, gamma)
         for x = 0, cols - 1 do
             local lum = small:getPixel(x, y):getColor8A().a -- 0 (black) .. 255 (white)
             local v = lum / 255
+            if invert then v = 1 - v end -- bright → dense glyph on black paper
             if gamma ~= 1.0 then v = v ^ gamma end
             local idx = math.floor(v * n) + 1
             if idx > n then idx = n end
@@ -445,11 +538,11 @@ end
 -- ---------------------------------------------------------------------------
 -- Cache
 -- ---------------------------------------------------------------------------
-local function cachePath(file, engine, mode, charset, tone, cols, rows)
+local function cachePath(file, engine, mode, charset, tone, invert, cols, rows)
     local md5 = util.partialMD5(file)
     if not md5 then return nil end
     -- The API picks its own glyphs and tones, so those only matter locally.
-    local cs = engine == "apileague" and "api" or (charset .. "-" .. tone)
+    local cs = engine == "apileague" and "api" or (charset .. "-" .. tone .. (invert and "-inv" or ""))
     return string.format("%s/%s_%s_%s_%s_%dx%d.txt", CACHE_DIR, md5, engine, mode, cs, cols, rows)
 end
 
@@ -491,9 +584,10 @@ local function getAscii(ui, file, engine, m, allow_network)
     local mode = getFitMode()
     local charset = getCharset()
     local tone = getTone()
+    local invert = isInverted()
     local used_cols, used_rows
     cover_bb, used_cols, used_rows = prepareCover(cover_bb, m, mode)
-    local cpath = cachePath(file, engine, mode, charset, tone, used_cols, used_rows)
+    local cpath = cachePath(file, engine, mode, charset, tone, invert, used_cols, used_rows)
     local lines = readCache(cpath)
     if lines then
         cover_bb:free()
@@ -508,7 +602,7 @@ local function getAscii(ui, file, engine, m, allow_network)
             err = "not cached"
         end
     else
-        lines = asciiLocal(cover_bb, used_cols, used_rows, charset, TONE_GAMMA[tone])
+        lines = asciiLocal(cover_bb, used_cols, used_rows, charset, TONE_GAMMA[tone], invert)
     end
     cover_bb:free()
 
@@ -525,9 +619,60 @@ local function utf8Len(s)
     return n
 end
 
-local function renderAscii(lines, m)
+local function utf8Codepoint(ch)
+    local b1 = ch:byte(1)
+    if not b1 then return 32 end
+    if b1 < 0x80 then return b1 end
+    if b1 < 0xE0 then
+        return (b1 - 0xC0) * 0x40 + (ch:byte(2) - 0x80)
+    end
+    if b1 < 0xF0 then
+        return ((b1 - 0xE0) * 0x40 + (ch:byte(2) - 0x80)) * 0x40 + (ch:byte(3) - 0x80)
+    end
+    return (((b1 - 0xF0) * 0x40 + (ch:byte(2) - 0x80)) * 0x40 + (ch:byte(3) - 0x80)) * 0x40 + (ch:byte(4) - 0x80)
+end
+
+-- One bitmap per distinct character used in `lines`. With a threshold the
+-- FreeType coverage bitmap is turned into pure ink/no-ink, so thin strokes
+-- stop fading to gray on e-ink. Only a few dozen glyphs ever exist, so the
+-- per-pixel loop is negligible.
+local function buildGlyphSet(m, lines)
+    local threshold = INK_THRESHOLD[m.ink]
+    local set = {}
+    for _i, line in ipairs(lines) do
+        for _j, ch in ipairs(util.splitToChars(line)) do
+            if set[ch] == nil and ch ~= " " then
+                local g = RenderText:getGlyph(m.face, utf8Codepoint(ch), m.bold)
+                if g and g.bb then
+                    local gbb, own = g.bb, false
+                    local w, h = gbb:getWidth(), gbb:getHeight()
+                    if threshold and w > 0 and h > 0 then
+                        local tbb = Blitbuffer.new(w, h, Blitbuffer.TYPE_BB8)
+                        for y = 0, h - 1 do
+                            for x = 0, w - 1 do
+                                local a = gbb:getPixel(x, y):getColor8().a
+                                -- BB8 value is the blit coverage: 0xFF = full ink.
+                                tbb:setPixel(x, y, a >= threshold and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK)
+                            end
+                        end
+                        gbb, own = tbb, true
+                    end
+                    set[ch] = { bb = gbb, l = g.l, t = g.t, w = w, h = h, own = own }
+                else
+                    set[ch] = false
+                end
+            end
+        end
+    end
+    return set
+end
+
+-- Draws every character at a fixed cell position (column k → x0 + x·cell_w),
+-- independent of the glyph's own advance, so all rows align exactly.
+-- `invert` → black page, white glyphs.
+local function renderAscii(lines, m, invert)
     local bb = Blitbuffer.new(m.screen_w, m.screen_h, Screen.bb:getType())
-    bb:fill(Blitbuffer.COLOR_WHITE)
+    bb:fill(invert and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_WHITE)
     local max_len = 0
     for _i, line in ipairs(lines) do
         local len = utf8Len(line)
@@ -535,11 +680,26 @@ local function renderAscii(lines, m)
     end
     local x0 = math.max(0, math.floor((m.screen_w - max_len * m.cell_w) / 2))
     local y0 = math.max(0, math.floor((m.screen_h - #lines * m.cell_h) / 2))
+
+    local glyphs = buildGlyphSet(m, lines)
+    local dilate = m.ink == "heavy"
+    local black = invert and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK -- ink colour
     for i, line in ipairs(lines) do
-        if line ~= "" then
-            RenderText:renderUtf8Text(bb, x0, y0 + (i - 1) * m.cell_h + m.baseline,
-                m.face, line, false, m.bold, Blitbuffer.COLOR_BLACK)
+        local base_y = y0 + (i - 1) * m.cell_h + m.baseline
+        for k, ch in ipairs(util.splitToChars(line)) do
+            local g = glyphs[ch]
+            if g and g.w > 0 and g.h > 0 then
+                local gx = x0 + math.floor((k - 1) * m.cell_w + 0.5) + g.l
+                local gy = base_y - g.t
+                bb:colorblitFrom(g.bb, gx, gy, 0, 0, g.w, g.h, black)
+                if dilate then
+                    bb:colorblitFrom(g.bb, gx + 1, gy, 0, 0, g.w, g.h, black)
+                end
+            end
         end
+    end
+    for _ch, g in pairs(glyphs) do
+        if g and g.own then g.bb:free() end
     end
     return bb
 end
@@ -553,19 +713,23 @@ local function buildSleepImage(ui)
     local lines = getAscii(ui, file, engine, m, false)
     if not lines and engine ~= "local" then
         -- No cached API result: never hit the network while suspending.
-        lines = getAscii(ui, file, "local", m, false)
+        engine = "local"
+        lines = getAscii(ui, file, engine, m, false)
     end
     if not lines then return nil end
+    -- The API's text assumes dark glyphs on white paper; only invert our own.
+    local invert = isInverted() and engine == "local"
     local max_len = 0
     for _i, line in ipairs(lines) do
         local len = utf8Len(line)
         if len > max_len then max_len = len end
     end
     logger.info(string.format(
-        "ascii cover: screen %dx%d, grid %dx%d, cell %dx%d (font %d%s), text %dx%d, mode %s, charset %s, tone %s, engine %s, file %s",
-        m.screen_w, m.screen_h, m.cols, m.rows, m.cell_w, m.cell_h, m.font_size, m.bold and " bold" or "",
+        "ascii cover: screen %dx%d, grid %dx%d, cell %.1fx%d (font %d%s, ink %s%s), text %dx%d, mode %s, charset %s, tone %s, engine %s, file %s",
+        m.screen_w, m.screen_h, m.cols, m.rows, m.cell_w, m.cell_h, m.font_size, m.bold and " bold" or "", m.ink,
+        invert and " inverted" or "",
         max_len, #lines, getFitMode(), getCharset(), getTone(), engine, file))
-    return renderAscii(lines, m)
+    return renderAscii(lines, m, invert)
 end
 
 -- Converts (and caches) the target book with the configured engine.
@@ -769,6 +933,31 @@ local function genSettingsMenu()
             },
             {
                 text_func = function()
+                    if matchesStylePreset("picture") then return _("Style: picture") end
+                    if matchesStylePreset("classic") then return _("Style: classic ASCII") end
+                    return _("Style: custom")
+                end,
+                help_text = _("Applies a set of quality, character, ink and row settings at once. Fine-tune them below afterwards."),
+                sub_item_table = {
+                    {
+                        text = _("Picture (fine grid)"),
+                        help_text = _("200 columns, simple glyphs, solid ink, darkest tone, tight rows. Characters act as a dither pattern; cover detail and title text stay recognisable."),
+                        radio = true,
+                        checked_func = function() return matchesStylePreset("picture") end,
+                        callback = function() applyStylePreset("picture") end,
+                    },
+                    {
+                        text = _("Classic ASCII (visible characters)"),
+                        help_text = _("100 columns, detailed letter/symbol ramp, solid ink, darker tone, normal rows. Characters are readable as text, like terminal ASCII art. Best for bold, high-contrast covers; fine detail and small title text are lost."),
+                        radio = true,
+                        checked_func = function() return matchesStylePreset("classic") end,
+                        callback = function() applyStylePreset("classic") end,
+                    },
+                },
+                separator = true,
+            },
+            {
+                text_func = function()
                     local cols = getColumns()
                     if isAutoColumns() then
                         return T(_("Quality: auto (%1 columns)"), cols)
@@ -848,6 +1037,59 @@ local function genSettingsMenu()
                     genRadio(_("Block shading"), KEY_CHARSET, "blocks",
                         _("█ ▓ ▒ ░ and space. Looks like a coarse grayscale picture rather than text. Uses JetBrainsMono-Regular.ttf from the koreader/fonts folder; without it the glyphs come from a fallback font and may misalign.")),
                 },
+            },
+            {
+                text_func = function()
+                    return T(_("Glyph size: %1 pt"), getAutoFontSize())
+                end,
+                help_text = _("Glyph size used by the Auto quality. Larger glyphs have thicker strokes and read darker from a distance; the column count adapts automatically."),
+                enabled_func = isAutoColumns,
+                sub_item_table_func = function()
+                    local labels = { _("Small"), _("Medium"), _("Large"), _("Extra large") }
+                    local items = {}
+                    for i, s in ipairs(GLYPH_SIZES) do
+                        items[#items + 1] = {
+                            text = T("%1 (%2 pt)", labels[i] or tostring(s), s),
+                            radio = true,
+                            checked_func = function() return getAutoFontSize() == s end,
+                            callback = function()
+                                G_reader_settings:saveSetting(KEY_GLYPH_SIZE, s)
+                            end,
+                        }
+                    end
+                    return items
+                end,
+            },
+            {
+                text_func = function()
+                    local ink = getInk()
+                    local label = ink == "aa" and _("anti-aliased")
+                               or ink == "heavy" and _("heavy")
+                               or _("solid")
+                    return T(_("Ink: %1"), label)
+                end,
+                help_text = _("Solid turns every glyph pixel pure black or white instead of gray, which is what makes small characters look washed out on e-ink. Heavy also thickens strokes by one pixel."),
+                sub_item_table = {
+                    genRadio(_("Anti-aliased"), KEY_INK, "aa"),
+                    genRadio(_("Solid"), KEY_INK, "solid"),
+                    genRadio(_("Heavy"), KEY_INK, "heavy"),
+                },
+            },
+            {
+                text = _("Tight rows"),
+                help_text = _("Packs glyph rows closer together (80 % of the font's line height) to remove the horizontal striping between rows. Rows that use glyphs with descenders may touch."),
+                checked_func = isTightRows,
+                callback = function()
+                    G_reader_settings:flipNilOrTrue(KEY_TIGHT)
+                end,
+            },
+            {
+                text = _("White on black"),
+                help_text = _("Black page with white glyphs. Bright areas of the cover become dense glyphs, dark areas stay black, so the picture never looks washed out. On-device engine only."),
+                checked_func = isInverted,
+                callback = function()
+                    G_reader_settings:flipNilOrFalse(KEY_INVERT)
+                end,
             },
             {
                 text = _("Bold glyphs"),

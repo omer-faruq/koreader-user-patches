@@ -13,13 +13,18 @@ Adds a new screensaver type, **Show ASCII art of book cover on sleep screen**, t
 - **Two conversion engines:**
   - **On device (default)**: offline luminance ramp, no network, no API key.
   - **API League**: uses the [apileague.com](https://apileague.com) Image-to-ASCII API. The cover is sent directly in the request body (no image hosting). Each call costs 5 quota points (free tier: 50/day). Conversion happens when a book is opened while WiFi is already connected, or via `Convert current cover now`. The network is never used at suspend time; without a cached API result the on-device engine is used.
-- **Quality**: `Auto` (default; fixed glyph size, column count follows screen width), presets `Low 60` / `Normal 80` / `High 120` / `Very high 160` / `Ultra 200`, or a custom value (40–240).
+- **Style presets**: `Picture` (200 columns, simple glyphs, solid ink, darkest tone, tight rows — glyphs act as a dither pattern; default values) or `Classic ASCII` (100 columns, detailed ramp, darker tone, normal rows — characters readable as text). Individual options can be fine-tuned afterwards.
+- **Quality**: `Auto` (fixed glyph size, column count follows screen width), presets `Low 60` / `Normal 80` / `High 120` / `Very high 160` / `Ultra 200` (default), or a custom value (40–240).
+- **Glyph size**: 8 / 10 (default) / 12 / 14 pt, used by the `Auto` quality.
 - **Character set** (on-device only): `Simple` (12 glyphs), `Detailed` (70 glyphs), or `Block shading` (`█▓▒░`).
+- **Ink**: `Anti-aliased`, `Solid` (default; glyph pixels thresholded to pure black so thin strokes don't fade to gray on e-ink), or `Heavy` (lower threshold plus 1 px stroke thickening).
+- **Tight rows**: row pitch at 80 % of the line height to remove striping between rows (default on).
+- **White on black** (on-device only): black page with white glyphs, ramp reversed.
 - **Bold glyphs**: synthetic bold strokes so small characters don't fade on e-ink (default on).
-- **Tone** (on-device only): `Normal` / `Darker` / `Darkest` gamma on luminance.
-- **Cover placement**: `Fit` (keep aspect, margins), `Fill` (keep aspect, crop overflow), or `Stretch`.
+- **Tone** (on-device only): `Normal` / `Darker` / `Darkest` (default) gamma on luminance.
+- **Cover placement**: `Fit` (keep aspect, margins), `Fill` (keep aspect, crop overflow), or `Stretch` (default).
 - **Exclude paths**: comma-separated path fragments; matching books are skipped and the reading history is searched backwards for the most recent non-excluded book. Core's per-book "Do not show this book cover on sleep screen" flag is also honoured.
-- Results are cached under `koreader/cache/ascii_covers/` (per book, engine, placement, charset/tone and grid size); `Clear ASCII cache` removes them.
+- Results are cached under `koreader/cache/ascii_covers/` (per book, engine, placement, charset/tone/inversion and grid size); `Clear ASCII cache` removes them.
 - If no cover can be produced, KOReader's normal `Show book cover on sleep screen` behaviour (and its random-image fallback) takes over.
 
 **Where to configure:**
