@@ -6,6 +6,33 @@
 - Follow other steps(like creating another folder, editing the lua file, etc.) if mentioned.
 - Restart KOReader.
 
+## 2-ascii-cover-screensaver.lua
+Adds a new screensaver type, **Show ASCII art of book cover on sleep screen**, that renders the cover of the current (or last opened) book as ASCII art.
+
+**Features:**
+- **Two conversion engines:**
+  - **On device (default)**: offline luminance ramp, no network, no API key.
+  - **API League**: uses the [apileague.com](https://apileague.com) Image-to-ASCII API. The cover is sent directly in the request body (no image hosting). Each call costs 5 quota points (free tier: 50/day). Conversion happens when a book is opened while WiFi is already connected, or via `Convert current cover now`. The network is never used at suspend time; without a cached API result the on-device engine is used.
+- **Quality**: `Auto` (default; fixed glyph size, column count follows screen width), presets `Low 60` / `Normal 80` / `High 120` / `Very high 160` / `Ultra 200`, or a custom value (40–240).
+- **Character set** (on-device only): `Simple` (12 glyphs), `Detailed` (70 glyphs), or `Block shading` (`█▓▒░`).
+- **Bold glyphs**: synthetic bold strokes so small characters don't fade on e-ink (default on).
+- **Tone** (on-device only): `Normal` / `Darker` / `Darkest` gamma on luminance.
+- **Cover placement**: `Fit` (keep aspect, margins), `Fill` (keep aspect, crop overflow), or `Stretch`.
+- **Exclude paths**: comma-separated path fragments; matching books are skipped and the reading history is searched backwards for the most recent non-excluded book. Core's per-book "Do not show this book cover on sleep screen" flag is also honoured.
+- Results are cached under `koreader/cache/ascii_covers/` (per book, engine, placement, charset/tone and grid size); `Clear ASCII cache` removes them.
+- If no cover can be produced, KOReader's normal `Show book cover on sleep screen` behaviour (and its random-image fallback) takes over.
+
+**Where to configure:**
+- Open KOReader settings for wallpaper/screensaver type (`Settings > Screen > Sleep screen > Wallpaper`).
+- Select `Show ASCII art of book cover on sleep screen`.
+- Go into `ASCII cover settings` to configure the options above.
+
+**Setup (optional):**
+- For `Block shading`, put `JetBrainsMono-Regular.ttf` into the `koreader/fonts` folder (KOReader's default mono font lacks these glyphs; without it a fallback font is used and the art may misalign).
+- For the API League engine, either enter your key via `API League key`, or replace `Your_Api_Key` (`DEFAULT_API_KEY`) in the `.lua` file.
+
+---
+
 ## 2-book-receipt-shortcut-and-lockscreen.lua
 Displays reading progress in a visual "receipt" format showing book/chapter progress, estimated time remaining, and book cover.
 
