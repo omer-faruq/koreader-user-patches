@@ -38,6 +38,25 @@ Adds a new screensaver type, **Show ASCII art of book cover on sleep screen**, t
 
 ---
 
+## 2-autoturn-autostop.lua
+Stops the Autoturn plugin when you haven't touched the device for a while, or when the battery drops below a threshold (useful if you fall asleep while reading). Once Autoturn stops, AutoSuspend / AutoShutdown take over as configured.
+
+**Features:**
+- **Stop after inactivity**: minutes since your last touch or key press (0 = off). Autoturn page turns don't count as input.
+- **Stop below battery level**: percent threshold (0 = off); ignored while charging.
+- Conditions are checked on every autoturn tick.
+- On stop, a `Continue / Stop` box is shown. `Continue` restarts Autoturn (for the battery case, it won't ask again until the book is reopened); `Stop` or tapping outside leaves it off.
+- Stopping lasts for the current session only: the Autoturn setting itself stays on, so it starts again with the next book.
+
+**Where to configure:**
+- Reader menu > Navigation tab (where Autoturn is), at the bottom of the list > `Autoturn auto-stop`.
+- Turn on `Enable auto-stop` (off by default), then set the inactivity and/or battery thresholds.
+
+**Requirements:**
+- KOReader's Autoturn plugin must be enabled.
+
+---
+
 ## 2-book-receipt-shortcut-and-lockscreen.lua
 Displays reading progress in a visual "receipt" format showing book/chapter progress, estimated time remaining, and book cover.
 
